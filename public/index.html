@@ -488,6 +488,12 @@
         <h3 style="font-size:.85rem;margin-bottom:8px">🎯 Em Execução</h3>
         <div id="execution-info" style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:.8rem"></div>
       </div>
+      <div id="request-approval-section" style="margin-top:12px">
+        <hr style="border-color:var(--border);margin-bottom:8px">
+        <h3 style="font-size:.85rem;margin-bottom:8px">👑 Solicitar Aprovação do PO</h3>
+        <input type="text" id="modal-approval-question" placeholder="Descreva o que precisa de aprovação..." style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8rem;margin-bottom:8px">
+        <button class="btn btn-sm" style="background:var(--accent)" onclick="requestApproval()">👑 Solicitar Aprovação</button>
+      </div>
       <div id="approval-section" style="margin-top:12px;display:none;background:var(--surface2);border-radius:8px;padding:12px;border:2px solid var(--accent)">
         <h3 style="font-size:.85rem;margin-bottom:8px;color:var(--accent2)">👑 Aguardando sua Aprovação</h3>
         <div id="approval-question" style="font-size:.8rem;margin-bottom:10px;color:var(--text-muted)"></div>
@@ -789,6 +795,24 @@ async function saveTask() {
   } catch(err) { addFeed('❌ '+err.message); }
 }
 
+async function requestApproval() {
+  if (!currentModalTaskId) return;
+  const question = document.getElementById('modal-approval-question').value.trim() || 'Solicito sua aprovação para prosseguir.';
+  try {
+    await api('PATCH','/api/tasks/'+currentModalTaskId,{
+      status:'waiting_approval',
+      approval:'pending',
+      approval_question:question
+    });
+    await api('POST','/api/tasks/'+currentModalTaskId+'/comments',{
+      author:document.getElementById('modal-edit-agent').value || 'Agente',
+      body:'👑 **SOLICITA APROVAÇÃO:** ' + question
+    });
+    addFeed('👑 Solicitação de aprovação enviada!');
+    closeModal();
+  } catch(err) { addFeed('❌ '+err.message); }
+}
+
 async function deleteTask() {
   if (!currentModalTaskId||!confirm('Tem certeza que deseja excluir esta tarefa?')) return;
   try { await api('DELETE','/api/tasks/'+currentModalTaskId); addFeed('🗑 Tarefa excluída'); closeModal(); }
@@ -851,6 +875,29 @@ async function loadReport() {
     body.innerHTML='<div style="text-align:center;padding:24px;color:var(--red);font-size:.9rem">Erro: '+esc(err.message)+'</div>';
   }
 }
+// ── Approval ───────────────────────────────────────────────────────
+async function approveTask() {
+  const id=document.getElementById('approval-task-id').value;
+  if (!id) return;
+  try {
+    await api('PATCH','/api/tasks/'+id,{status:'done',approval:'approved'});
+    await api('POST','/api/tasks/'+id+'/comments',{author:'PO 🧑‍💼',body:'✅ **APROVADO** — Pode seguir com a implementação!'});
+    closeModal();
+    addFeed('👑 Tarefa aprovada!');
+  } catch(err) { addFeed('❌ Erro: '+err.message); }
+}
+
+async function rejectTask() {
+  const id=document.getElementById('approval-task-id').value;
+  if (!id) return;
+  try {
+    await api('PATCH','/api/tasks/'+id,{status:'rejected',approval:'rejected'});
+    await api('POST','/api/tasks/'+id+'/comments',{author:'PO 🧑‍💼',body:'❌ **REJEITADO** — Motivo: (precisa ser ajustado)'});
+    closeModal();
+    addFeed('👑 Tarefa rejeitada. Comentário adicionado.');
+  } catch(err) { addFeed('❌ Erro: '+err.message); }
+}
+
 // Auto-refresh on load
 refreshAll();
 // ── Agent Chat ────────────────────────────────────────────────────

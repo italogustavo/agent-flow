@@ -23,16 +23,17 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'backlog'
-      CHECK(status IN ('backlog','assigned','in_progress','review','done','rejected')),
+      CHECK(status IN ('backlog','assigned','in_progress','review','waiting_approval','done','rejected')),
     assigned_to TEXT DEFAULT NULL,
     priority TEXT NOT NULL DEFAULT 'medium'
       CHECK(priority IN ('low','medium','high','critical')),
-    approval TEXT DEFAULT NULL
-      CHECK(approval IN ('pending','approved','rejected')),
-    approval_question TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- Add approval columns if missing (for existing DBs)
+  ALTER TABLE tasks ADD COLUMN approval TEXT DEFAULT NULL;
+  ALTER TABLE tasks ADD COLUMN approval_question TEXT DEFAULT NULL;
 
   CREATE TABLE IF NOT EXISTS comments (
     id TEXT PRIMARY KEY,
