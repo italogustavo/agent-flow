@@ -544,7 +544,8 @@ const WS_URL = 'ws://'+location.host;
 const COLUMNS = ['backlog','assigned','in_progress','review','waiting_approval','done','rejected'];
 const STATUS_LABELS = {
   backlog:'📋 Backlog', assigned:'🎯 Atribuído', in_progress:'⚙️ Em Progresso',
-  review:'👀 Revisão', done:'✅ Concluído', rejected:'❌ Rejeitado'
+  review:'👀 Revisão', waiting_approval:'👑 Aguardando Aprovação',
+  done:'✅ Concluído', rejected:'❌ Rejeitado'
 };
 const agentNames = ['Bento 🦊','Nina 🐱','Teco 🐶','Dock 🐳','Luna 🦄'];
 
@@ -554,6 +555,17 @@ let currentModalTaskId = null;
 let draggedId = null;
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function timeAgo(dateStr) {
+  const now=new Date();
+  const d=new Date(dateStr+'Z');
+  const sec=Math.floor((now-d)/1000);
+  if(sec<60)return 'agora';
+  const min=Math.floor(sec/60);
+  if(min<60)return min+'min';
+  const h=Math.floor(min/60);
+  if(h<24)return h+'h';
+  return Math.floor(h/24)+'d';
+}
 
 async function api(method, path, body) {
   const opts = { method, headers: {'x-auth-token':AUTH_TOKEN,'Content-Type':'application/json'} };
@@ -911,9 +923,9 @@ function openAgentChat() {
   api('GET','/api/agents/messages?limit=50').then(msgs => {
     messages.innerHTML = msgs.reverse().map(m => `
       <div class="chat-msg ${m.from_agent === 'PO 🧑‍💼' ? 'chat-mine' : ''}">
-        <div class="chat-msg-author">${m.from_agent} ${m.to_agent ? '→ '+m.to_agent : ''}</div>
-        ${m.subject ? '<div class="chat-msg-subject">'+m.subject+'</div>' : ''}
-        <div class="chat-msg-body">${m.body}</div>
+        <div class="chat-msg-author">${esc(m.from_agent)} ${m.to_agent ? '→ '+esc(m.to_agent) : ''}</div>
+        ${m.subject ? '<div class="chat-msg-subject">'+esc(m.subject)+'</div>' : ''}
+        <div class="chat-msg-body">${esc(m.body)}</div>
         <div class="chat-msg-time">${timeAgo(m.created_at)}</div>
       </div>
     `).join('');
@@ -942,25 +954,17 @@ async function sendAgentMessage() {
   }
 }
 
-// WebSocket handler for agent messages
-// Add to existing message handler
-const origOnMsg = ws.onmessage;
-ws.onmessage = function(e) {
-  const data = JSON.parse(e.data);
-  if (data.type === 'agent:message') {
-    addFeed(`💬 ${data.message.from} → ${data.message.to || 'todos'}: ${data.message.body}`);
-    // Se o chat estiver aberto, atualizar
+// Add agent:message handler to existing onmessage
+const _origHandleWSMsg = handleWSMessage;
+handleWSMessage = function(msg) {
+  if (msg.type === 'agent:message') {
+    addFeed('💬 '+esc(msg.message.from)+' → '+esc(msg.message.to||'todos')+': '+esc(msg.message.body));
     if (document.getElementById('chat-overlay').classList.contains('active')) {
       openAgentChat();
     }
   }
-  if (origOnMsg) {
-    // Forward to existing handler if defined
-    if (window._wsOriginalOnMsg) window._wsOriginalOnMsg(e);
-  }
+  _origHandleWSMsg(msg);
 };
-
-refreshAll();
 </script>
 
 <!-- Chat Overlay -->

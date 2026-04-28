@@ -31,9 +31,6 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- Add approval columns if missing (for existing DBs)
-  ALTER TABLE tasks ADD COLUMN approval TEXT DEFAULT NULL;
-  ALTER TABLE tasks ADD COLUMN approval_question TEXT DEFAULT NULL;
 
   CREATE TABLE IF NOT EXISTS comments (
     id TEXT PRIMARY KEY,
@@ -84,6 +81,10 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_token_usage_name ON agent_token_usage(name);
 `);
+
+// Safe migration: add approval columns if not present
+try { db.exec('ALTER TABLE tasks ADD COLUMN approval TEXT DEFAULT NULL'); } catch(e) { /* column already exists */ }
+try { db.exec('ALTER TABLE tasks ADD COLUMN approval_question TEXT DEFAULT NULL'); } catch(e) { /* column already exists */ }
 
 // Seed some demo tasks
 const count = db.prepare('SELECT COUNT(*) as cnt FROM tasks').get();
@@ -242,7 +243,7 @@ app.get('/api/agents', (req, res) => {
 // ── Agent Chat / Messages ──────────────────────────────────────────────────
 
 // POST /api/agents/messages — Send a message to another agent
-app.post('/api/agents/messages', (req, res) => {
+app.post('/api/agents/messages', auth, (req, res) => {
   const { from, to, taskId, type, subject, body } = req.body;
   if (!from || !body) return res.status(400).json({ error: 'from and body are required' });
   if (!to && !taskId) return res.status(400).json({ error: 'to (agent) or taskId is required' });
@@ -296,8 +297,8 @@ app.get('/api/agents/messages', auth, (req, res) => {
 
   if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
   sql += ' ORDER BY created_at DESC';
-  if (limit) sql += ' LIMIT ' + parseInt(limit);
-  else sql += ' LIMIT 50';
+  const limitNum = parseInt(limit);
+  if (limit && !isNaN(limitNum) && limitNum > 0) { sql += ' LIMIT ?'; params.push(limitNum); } else { sql += ' LIMIT 50'; }
 
   res.json(db.prepare(sql).all(...params));
 });
