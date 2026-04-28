@@ -40,6 +40,28 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
+
+  CREATE TABLE IF NOT EXISTS agent_thoughts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    thinking TEXT NOT NULL,
+    task_id TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_token_usage (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    model TEXT DEFAULT 'deepseek/deepseek-chat',
+    cost REAL DEFAULT 0,
+    task_id TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_thoughts_name ON agent_thoughts(name);
+  CREATE INDEX IF NOT EXISTS idx_token_usage_name ON agent_token_usage(name);
 `);
 
 // Seed some demo tasks
@@ -191,6 +213,119 @@ app.get('/api/agents', (req, res) => {
     });
   }
   res.json(list);
+});
+
+// ── Agent Thinking ────────────────────────────────────────────────────────
+
+// POST /api/agents/thinking — Register agent thinking
+app.post('/api/agents/thinking', (req, res) => {
+  const { name, thinking, taskId } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  if (!thinking) return res.status(400).json({ error: 'thinking is required' });
+
+  const id = uuidv4();
+  db.prepare(
+    'INSERT INTO agent_thoughts (id, name, thinking, task_id) VALUES (?, ?, ?, ?)'
+  ).run(id, name, thinking, taskId || null);
+
+  // Update agent in-memory with thinking
+  const agentData = agents.get(name);
+  if (agentData) {
+    agentData.thinking = thinking;
+    agentData.taskId = taskId || agentData.taskId;
+    agentData.lastSeen = Date.now();
+    agents.set(name, agentData);
+  }
+
+  const payload = { name, thinking, taskId: taskId || null, timestamp: new Date().toISOString() };
+  broadcast({ type: 'agent:thinking', agent: payload });
+  res.status(201).json({ ok: true, id });
+});
+
+// GET /api/agents/thinking — Get current thinking of each agent
+app.get('/api/agents/thinking', auth, (req, res) => {
+  const thoughts = db.prepare(`
+    SELECT a.* FROM agent_thoughts a
+    INNER JOIN (
+      SELECT name, MAX(created_at) as max_created
+      FROM agent_thoughts GROUP BY name
+    ) b ON a.name = b.name AND a.created_at = b.max_created
+  `).all();
+  res.json(thoughts);
+});
+
+// GET /api/agents/thinking/history?name=X — Full history by agent
+app.get('/api/agents/thinking/history', auth, (req, res) => {
+  const { name, limit } = req.query;
+  let sql = 'SELECT * FROM agent_thoughts';
+  const params = [];
+  if (name) { sql += ' WHERE name = ?'; params.push(name); }
+  sql += ' ORDER BY created_at DESC';
+  if (limit) { sql += ' LIMIT ?'; params.push(parseInt(limit)); }
+  res.json(db.prepare(sql).all(...params));
+});
+
+// ── Agent Token Usage ─────────────────────────────────────────────────────
+
+// POST /api/agents/tokens — Register token usage
+app.post('/api/agents/tokens', (req, res) => {
+  const { name, tokensIn, tokensOut, model, taskId, cost } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  const id = uuidv4();
+  const ti = parseInt(tokensIn) || 0;
+  const to = parseInt(tokensOut) || 0;
+  const mdl = model || 'deepseek/deepseek-chat';
+
+  let c = parseFloat(cost) || 0;
+  if (!cost) {
+    c = (ti / 1_000_000) * 0.27 + (to / 1_000_000) * 1.10;
+  }
+
+  db.prepare(
+    'INSERT INTO agent_token_usage (id, name, tokens_in, tokens_out, model, cost, task_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, name, ti, to, mdl, c, taskId || null);
+
+  broadcast({ type: 'agent:tokens', usage: { name, tokensIn: ti, tokensOut: to, model: mdl, cost: c, taskId: taskId || null } });
+  res.status(201).json({ ok: true, id, cost: c });
+});
+
+// GET /api/agents/tokens — Tokens by agent
+app.get('/api/agents/tokens', auth, (req, res) => {
+  const { name } = req.query;
+  let sql = 'SELECT * FROM agent_token_usage';
+  const params = [];
+  if (name) { sql += ' WHERE name = ?'; params.push(name); }
+  sql += ' ORDER BY created_at DESC';
+  if (!name) sql += ' LIMIT 100';
+  res.json(db.prepare(sql).all(...params));
+});
+
+// GET /api/agents/tokens/summary — Overall summary
+app.get('/api/agents/tokens/summary', auth, (req, res) => {
+  const byAgent = db.prepare(`
+    SELECT
+      name,
+      SUM(tokens_in) as total_tokens_in,
+      SUM(tokens_out) as total_tokens_out,
+      SUM(tokens_in + tokens_out) as total_tokens,
+      SUM(cost) as total_cost,
+      COUNT(*) as usage_count
+    FROM agent_token_usage
+    GROUP BY name
+    ORDER BY total_cost DESC
+  `).all();
+
+  const grandTotal = db.prepare(`
+    SELECT
+      SUM(tokens_in) as total_tokens_in,
+      SUM(tokens_out) as total_tokens_out,
+      SUM(tokens_in + tokens_out) as total_tokens,
+      SUM(cost) as total_cost,
+      COUNT(*) as usage_count
+    FROM agent_token_usage
+  `).get();
+
+  res.json({ byAgent, grandTotal });
 });
 
 // ── WebSocket ─────────────────────────────────────────────────────────────
