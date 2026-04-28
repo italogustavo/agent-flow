@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Flow — Kanban</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242738;
+    --border: #2a2d3e;
+    --text: #e4e6f0;
+    --text-muted: #8b8fa3;
+    --accent: #6c5ce7;
+    --accent2: #a29bfe;
+    --green: #00b894;
+    --yellow: #fdcb6e;
+    --red: #e17055;
+    --blue: #74b9ff;
+    --radius: 10px;
+    --shadow: 0 4px 20px rgba(0,0,0,.4);
+  }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { font-size: 1.4rem; font-weight: 700; }
+  header h1 span { color: var(--accent2); }
+  .header-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .875rem;
+    font-weight: 600;
+    transition: all .2s;
+  }
+  .btn:hover { background: #5a4bd1; transform: translateY(-1px); }
+  .btn-sm { padding: 5px 12px; font-size: .8rem; }
+  .btn-danger { background: var(--red); }
+  .btn-danger:hover { background: #c0392b; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent2); }
+  .agent-bar {
+    background: var(--surface2);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    font-size: .85rem;
+  }
+  .agent-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .agent-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .dot-online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-away { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .dot-offline { background: var(--text-muted); }
+  .agent-name { font-weight: 600; }
+  .live-feed {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 24px;
+    font-size: .8rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .board {
+    display: flex;
+    gap: 16px;
+    padding: 20px 24px;
+    flex: 1;
+    overflow-x: auto;
+    align-items: flex-start;
+  }
+  .column {
+    min-width: 280px;
+    max-width: 320px;
+    flex: 1;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 200px);
+  }
+  .column-header {
+    padding: 14px 16px;
+    font-weight: 700;
+    font-size: .85rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+  }
+  .column-header .count {
+    background: var(--surface2);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: .75rem;
+    color: var(--text-muted);
+  }
+  .col-backlog .column-header { border-left: 3px solid var(--text-muted); }
+  .col-assigned .column-header { border-left: 3px solid var(--blue); }
+  .col-in_progress .column-header { border-left: 3px solid var(--yellow); }
+  .col-review .column-header { border-left: 3px solid var(--accent2); }
+  .col-done .column-header { border-left: 3px solid var(--green); }
+  .col-rejected .column-header { border-left: 3px solid var(--red); }
+  .column-body {
+    padding: 8px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 80px;
+  }
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: grab;
+    transition: all .2s;
+    position: relative;
+  }
+  .card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+  }
+  .card:active { cursor: grabbing; }
+  .card.dragging {
+    opacity: .5;
+    transform: rotate(2deg);
+  }
+  .card .card-title {
+    font-weight: 600;
+    font-size: .9rem;
+    margin-bottom: 6px;
+    word-break: break-word;
+  }
+  .card .card-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: .75rem;
+    color: var(--text-muted);
+  }
+  .card .card-agent {
+    background: var(--surface);
+    padding: 2px 8px;
+    border-radius: 10px;
+    color: var(--accent2);
+  }
+  .card .priority-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: .7rem;
+    font-weight: 600;
+  }
+  .prio-low { background: #2d4059; color: var(--blue); }
+  .prio-medium { background: #3d3520; color: var(--yellow); }
+  .prio-high { background: #3d2020; color: var(--red); }
+  .prio-critical { background: #4a1515; color: #ff6b6b; }
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px;
+    max-width: 560px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 60px rgba(0,0,0,.6);
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: 4px; }
+  .modal .modal-id { color: var(--text-muted); font-size: .8rem; margin-bottom: 16px; }
+  .modal label {
+    display: block;
+    font-size: .8rem;
+    font-weight: 600;
+    margin-top: 14px;
+    margin-bottom: 4px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .modal input, .modal select, .modal textarea {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: .9rem;
+    font-family: inherit;
+  }
+  .modal textarea { min-height: 80px; resize: vertical; }
+  .modal input:focus, .modal select:focus, .modal textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .modal .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+    justify-content: flex-end;
+  }
+  .modal .modal-status {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .modal .status-btn {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    font-size: .8rem;
+    transition: all .15s;
+  }
+  .modal .status-btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+  }
+  .modal .status-btn:hover { border-color: var(--accent); }
+  .comments-section { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .comments-section h3 { font-size: .9rem; margin-bottom: 10px; color: var(--text-muted); }
+  .comment {
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .comment .comment-meta {
+    font-size: .75rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .comment .comment-meta strong { color: var(--accent2); }
+  .comment .comment-body { font-size: .85rem; }
+  .comment-form { display: flex; gap: 8px; margin-top: 10px; }
+  .comment-form input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .comment-form input::placeholder { color: var(--text-muted); }
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-size: .85rem;
+    box-shadow: var(--shadow);
+    z-index: 200;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all .3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .empty-col {
+    text-align: center;
+    padding: 24px 12px;
+    color: var(--text-muted);
+    font-size: .8rem;
+  }
+  .new-task-form {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: none;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+  .new-task-form.active { display: flex; }
+  .new-task-form .field { flex: 1; min-width: 160px; }
+  .new-task-form label { display: block; font-size: .75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .new-task-form input, .new-task-form select {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  @media (max-width: 768px) {
+    .board { flex-direction: column; align-items: stretch; padding: 12px; }
+    .column { max-width: none; min-width: 0; max-height: none; }
+    header { flex-direction: column; align-items: stretch; }
+    .live-feed { white-space: normal; overflow: visible; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>⚡ Agent <span>Flow</span></h1>
+    <div class="header-controls">
+      <div id="agent-status-indicator" style="font-size:.8rem;color:var(--green)">
+        🟢 Conectado
+      </div>
+      <button class="btn" onclick="showNewTaskForm()">+ Nova Tarefa</button>
+      <button class="btn btn-outline btn-sm" onclick="refreshAll()">↻ Sincronizar</button>
+    </div>
+  </header>
+
+  <div class="agent-bar" id="agent-bar">
+    <span style="color:var(--text-muted);font-size:.8rem;">🕵️ Agentes:</span>
+    <span id="agent-list">Nenhum agente ativo</span>
+  </div>
+
+  <div class="live-feed" id="live-feed">
+    <span id="feed-text">📡 Conectando ao servidor...</span>
+  </div>
+
+  <div class="new-task-form" id="new-task-form">
+    <div class="field">
+      <label>Título</label>
+      <input type="text" id="nt-title" placeholder="Título da tarefa">
+    </div>
+    <div class="field" style="flex:2">
+      <label>Descrição</label>
+      <input type="text" id="nt-desc" placeholder="Descrição opcional">
+    </div>
+    <div class="field" style="flex: 0 0 140px">
+      <label>Prioridade</label>
+      <select id="nt-prio">
+        <option value="low">Baixa</option>
+        <option value="medium" selected>Média</option>
+        <option value="high">Alta</option>
+        <option value="critical">Crítica</option>
+      </select>
+    </div>
+    <div class="field" style="flex: 0 0 140px">
+      <label>Responsável</label>
+      <select id="nt-agent"><option value="">— Ninguém —</option></select>
+    </div>
+    <button class="btn" onclick="createTask()">Criar</button>
+    <button class="btn btn-outline btn-sm" onclick="hideNewTaskForm()">Cancelar</button>
+  </div>
+
+  <div class="board" id="board">
+    <div class="column col-backlog" data-status="backlog">
+      <div class="column-header">📋 Backlog <span class="count" id="count-backlog">0</span></div>
+      <div class="column-body" id="col-backlog" ondragover="onDragOver(event)" ondrop="onDrop(event,'backlog')"></div>
+    </div>
+    <div class="column col-assigned" data-status="assigned">
+      <div class="column-header">🎯 Atribuído <span class="count" id="count-assigned">0</span></div>
+      <div class="column-body" id="col-assigned" ondragover="onDragOver(event)" ondrop="onDrop(event,'assigned')"></div>
+    </div>
+    <div class="column col-in_progress" data-status="in_progress">
+      <div class="column-header">⚙️ Em Progresso <span class="count" id="count-in_progress">0</span></div>
+      <div class="column-body" id="col-in_progress" ondragover="onDragOver(event)" ondrop="onDrop(event,'in_progress')"></div>
+    </div>
+    <div class="column col-review" data-status="review">
+      <div class="column-header">👀 Revisão <span class="count" id="count-review">0</span></div>
+      <div class="column-body" id="col-review" ondragover="onDragOver(event)" ondrop="onDrop(event,'review')"></div>
+    </div>
+    <div class="column col-done" data-status="done">
+      <div class="column-header">✅ Concluído <span class="count" id="count-done">0</span></div>
+      <div class="column-body" id="col-done" ondragover="onDragOver(event)" ondrop="onDrop(event,'done')"></div>
+    </div>
+    <div class="column col-rejected" data-status="rejected">
+      <div class="column-header">❌ Rejeitado <span class="count" id="count-rejected">0</span></div>
+      <div class="column-body" id="col-rejected" ondragover="onDragOver(event)" ondrop="onDrop(event,'rejected')"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()" id="task-modal">
+      <h2 id="modal-title"></h2>
+      <div class="modal-id" id="modal-id"></div>
+      <label>Título</label>
+      <input type="text" id="modal-edit-title">
+      <label>Descrição</label>
+      <textarea id="modal-edit-desc"></textarea>
+      <label>Status</label>
+      <div class="modal-status" id="modal-status-btns"></div>
+      <div style="display:flex;gap:16px;">
+        <div style="flex:1">
+          <label>Responsável</label>
+          <select id="modal-edit-agent"></select>
+        </div>
+        <div style="flex:1">
+          <label>Prioridade</label>
+          <select id="modal-edit-prio">
+            <option value="low">Baixa</option>
+            <option value="medium">Média</option>
+            <option value="high">Alta</option>
+            <option value="critical">Crítica</option>
+          </select>
+        </div>
+      </div>
+      <div class="comments-section" id="comments-section">
+        <h3>💬 Comentários</h3>
+        <div id="comments-list"></div>
+        <div class="comment-form">
+          <input type="text" id="comment-input" placeholder="Adicionar comentário...">
+          <button class="btn btn-sm" onclick="addComment()">Enviar</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-danger btn-sm" onclick="deleteTask()" style="margin-right:auto">🗑 Excluir</button>
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-sm" onclick="saveTask()">💾 Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = '';
+const AUTH_TOKEN = 'agent-5678';
+const WS_URL = 'ws://'+location.host;
+const COLUMNS = ['backlog','assigned','in_progress','review','done','rejected'];
+const STATUS_LABELS = {
+  backlog:'📋 Backlog', assigned:'🎯 Atribuído', in_progress:'⚙️ Em Progresso',
+  review:'👀 Revisão', done:'✅ Concluído', rejected:'❌ Rejeitado'
+};
+const agentNames = ['Bento 🦊','Nina 🐱','Teco 🐶','Dock 🐳','Luna 🦄'];
+
+let tasks = [];
+let agents = {};
+let currentModalTaskId = null;
+let draggedId = null;
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'x-auth-token':AUTH_TOKEN,'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API_BASE+path, opts);
+  if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error||r.statusText); }
+  return r.json();
+}
+
+// WebSocket
+let ws = null;
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    document.getElementById('agent-status-indicator').textContent = '🟢 Conectado';
+    addFeed('📡 Conectado ao WebSocket');
+  };
+  ws.onclose = () => {
+    document.getElementById('agent-status-indicator').textContent = '🔴 Desconectado';
+    addFeed('⚠️ WebSocket desconectado, reconectando em 3s...');
+    setTimeout(connectWS, 3000);
+  };
+  ws.onmessage = (e) => {
+    try { handleWSMessage(JSON.parse(e.data)); } catch(err) {}
+  };
+}
+connectWS();
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'task:created':
+      tasks.unshift(msg.task); renderBoard();
+      addFeed('📌 Nova tarefa criada: "'+msg.task.title+'"'); break;
+    case 'task:updated':
+      tasks = tasks.map(t => t.id===msg.task.id ? msg.task : t); renderBoard();
+      if (msg.changes && msg.changes.status) addFeed('🔄 "'+msg.task.title+'" → '+(STATUS_LABELS[msg.task.status]||msg.task.status));
+      if (msg.changes && msg.changes.assigned_to) addFeed('👤 "'+msg.task.title+'" atribuída para '+msg.changes.assigned_to);
+      break;
+    case 'task:deleted':
+      tasks = tasks.filter(t => t.id!==msg.taskId); renderBoard();
+      addFeed('🗑 Tarefa removida'); break;
+    case 'task:comment':
+      if (currentModalTaskId===msg.taskId) loadComments(msg.taskId);
+      addFeed('💬 '+msg.comment.author+': "'+msg.comment.body.substring(0,40)+'"'); break;
+    case 'agent:heartbeat':
+      agents[msg.agent.name] = msg.agent; renderAgents();
+      addFeed('🫀 '+msg.agent.name+' heartbeat'); break;
+    case 'agent:offline':
+      if (agents[msg.agent.name]) agents[msg.agent.name].status='offline';
+      renderAgents(); addFeed('⏹ '+msg.agent.name+' offline'); break;
+    case 'agents:sync':
+      agents={}; for (const a of msg.agents) agents[a.name]=a;
+      renderAgents(); break;
+    case 'tasks:sync':
+      tasks=msg.tasks; renderBoard(); break;
+    case 'connected': addFeed('✅ '+msg.message); break;
+  }
+}
+
+function addFeed(text) {
+  const el=document.getElementById('feed-text');
+  const ts=new Date().toLocaleTimeString('pt-BR');
+  el.innerHTML='['+ts+'] '+text;
+}
+
+function renderAgents() {
+  const list=document.getElementById('agent-list');
+  const s1=document.getElementById('modal-edit-agent');
+  const s2=document.getElementById('nt-agent');
+  const names=Object.keys(agents);
+  if (!names.length) { list.textContent='Nenhum agente ativo'; }
+  else {
+    list.innerHTML='';
+    for (const name of names) {
+      const d=agents[name];
+      const dc=d.status==='online'?'dot-online':d.status==='away'?'dot-away':'dot-offline';
+      const el=document.createElement('span');
+      el.className='agent-item';
+      el.innerHTML='<span class="agent-dot '+dc+'"></span><span class="agent-name">'+name+'</span>';
+      list.appendChild(el);
+    }
+  }
+  const opts=allAgentOptions();
+  s1.innerHTML='<option value="">— Ninguém —</option>'+opts;
+  s2.innerHTML='<option value="">— Ninguém —</option>'+opts;
+}
+
+function allAgentOptions() {
+  const seen=new Set(), opts=[];
+  for (const n of agentNames) { seen.add(n); opts.push('<option value="'+n+'">'+n+'</option>'); }
+  for (const n of Object.keys(agents)) { if (!seen.has(n)) { seen.add(n); opts.push('<option value="'+n+'">'+n+'</option>'); }}
+  for (const t of tasks) { if (t.assigned_to&&!seen.has(t.assigned_to)){ seen.add(t.assigned_to); opts.push('<option value="'+t.assigned_to+'">'+t.assigned_to+'</option>'); }}
+  return opts.join('');
+}
+
+function renderBoard() {
+  for (const st of COLUMNS) {
+    const col=document.getElementById('col-'+st);
+    const cnt=document.getElementById('count-'+st);
+    const filtered=tasks.filter(t=>t.status===st);
+    cnt.textContent=filtered.length;
+    if (!filtered.length) { col.innerHTML='<div class="empty-col">Nenhuma tarefa</div>'; continue; }
+    col.innerHTML=filtered.map(t=>renderCard(t)).join('');
+    for (const card of col.querySelectorAll('.card')) {
+      card.addEventListener('dragstart',onDragStart);
+      card.addEventListener('dragend',onDragEnd);
+    }
+  }
+}
+
+function renderCard(task) {
+  const pc='prio-'+task.priority;
+  const pl={low:'Baixa',medium:'Média',high:'Alta',critical:'Crítica'}[task.priority]||task.priority;
+  return '<div class="card" draggable="true" data-id="'+task.id+'" onclick="openModal(\''+task.id+'\')">'
+    +'<div class="card-title">'+esc(task.title)+'</div>'
+    +'<div class="card-meta"><span><span class="priority-badge '+pc+'">'+pl+'</span></span>'
+    +'<span class="card-agent">'+(task.assigned_to?esc(task.assigned_to):'—')+'</span></div></div>';
+}
+
+function onDragStart(e) { draggedId=e.target.closest('.card').dataset.id; e.target.classList.add('dragging'); }
+function onDragEnd(e) { e.target.classList.remove('dragging'); draggedId=null; }
+function onDragOver(e) { e.preventDefault(); }
+
+async function onDrop(e,st) {
+  e.preventDefault();
+  if (!draggedId||tasks.find(t=>t.id===draggedId)?.status===st) return;
+  try { await api('PATCH','/api/tasks/'+draggedId,{status:st}); addFeed('🔄 Tarefa movida para '+STATUS_LABELS[st]); }
+  catch(err) { addFeed('❌ Erro ao mover: '+err.message); }
+}
+
+async function openModal(id) {
+  currentModalTaskId=id;
+  try {
+    const data=await api('GET','/api/tasks/'+id);
+    document.getElementById('modal-title').textContent=data.title;
+    document.getElementById('modal-id').textContent='#'+data.id.substring(0,8);
+    document.getElementById('modal-edit-title').value=data.title;
+    document.getElementById('modal-edit-desc').value=data.description||'';
+    const sb=document.getElementById('modal-status-btns');
+    sb.innerHTML=COLUMNS.map(s=>'<button class="status-btn '+(data.status===s?'active':'')+'" onclick="quickChangeStatus(\''+s+'\')">'+STATUS_LABELS[s]+'</button>').join('');
+    document.getElementById('modal-edit-agent').value=data.assigned_to||'';
+    document.getElementById('modal-edit-prio').value=data.priority;
+    loadComments(id);
+    document.getElementById('modal-overlay').classList.add('active');
+  } catch(err) { addFeed('❌ Erro ao carregar: '+err.message); }
+}
+
+function closeModal(e) {
+  if (e&&e.target!==e.currentTarget) return;
+  document.getElementById('modal-overlay').classList.remove('active');
+  currentModalTaskId=null;
+}
+
+async function loadComments(taskId) {
+  try {
+    const data=await api('GET','/api/tasks/'+taskId);
+    const list=document.getElementById('comments-list');
+    if (!data.comments||!data.comments.length) { list.innerHTML='<div style="color:var(--text-muted);font-size:.8rem;text-align:center;padding:12px;">Nenhum comentário ainda</div>'; return; }
+    list.innerHTML=data.comments.map(c=>'<div class="comment"><div class="comment-meta"><strong>'+esc(c.author)+'</strong> · '+new Date(c.created_at+'Z').toLocaleString('pt-BR')+'</div><div class="comment-body">'+esc(c.body)+'</div></div>').join('');
+  } catch(err) { addFeed('❌ Erro ao carregar comentários: '+err.message); }
+}
+
+async function addComment() {
+  const input=document.getElementById('comment-input');
+  const body=input.value.trim();
+  if (!body||!currentModalTaskId) return;
+  try { await api('POST','/api/tasks/'+currentModalTaskId+'/comments',{author:'Usuário',body}); input.value=''; loadComments(currentModalTaskId); }
+  catch(err) { addFeed('❌ '+err.message); }
+}
+
+async function quickChangeStatus(st) {
+  if (!currentModalTaskId) return;
+  try { await api('PATCH','/api/tasks/'+currentModalTaskId,{status:st}); document.querySelectorAll('.status-btn').forEach(b=>b.classList.remove('active')); event.target.classList.add('active'); addFeed('🔄 Status: '+STATUS_LABELS[st]); }
+  catch(err) { addFeed('❌ '+err.message); }
+}
+
+async function saveTask() {
+  if (!currentModalTaskId) return;
+  const title=document.getElementById('modal-edit-title').value.trim();
+  if (!title) { addFeed('⚠️ Título é obrigatório'); return; }
+  try {
+    await api('PATCH','/api/tasks/'+currentModalTaskId,{
+      title,
+      description:document.getElementById('modal-edit-desc').value,
+      assigned_to:document.getElementById('modal-edit-agent').value||null,
+      priority:document.getElementById('modal-edit-prio').value,
+    });
+    addFeed('💾 Tarefa salva'); closeModal();
+  } catch(err) { addFeed('❌ '+err.message); }
+}
+
+async function deleteTask() {
+  if (!currentModalTaskId||!confirm('Tem certeza que deseja excluir esta tarefa?')) return;
+  try { await api('DELETE','/api/tasks/'+currentModalTaskId); addFeed('🗑 Tarefa excluída'); closeModal(); }
+  catch(err) { addFeed('❌ '+err.message); }
+}
+
+function showNewTaskForm() { document.getElementById('new-task-form').classList.add('active'); renderAgents(); }
+function hideNewTaskForm() { document.getElementById('new-task-form').classList.remove('active'); }
+
+async function createTask() {
+  const title=document.getElementById('nt-title').value.trim();
+  if (!title) { addFeed('⚠️ Título é obrigatório'); return; }
+  try {
+    await api('POST','/api/tasks',{
+      title,
+      description:document.getElementById('nt-desc').value.trim(),
+      assigned_to:document.getElementById('nt-agent').value||null,
+      priority:document.getElementById('nt-prio').value,
+    });
+    document.getElementById('nt-title').value='';
+    document.getElementById('nt-desc').value='';
+    hideNewTaskForm();
+    addFeed('✅ Tarefa criada');
+  } catch(err) { addFeed('❌ '+err.message); }
+}
+
+async function refreshAll() {
+  try {
+    const data=await api('GET','/api/tasks');
+    tasks=data;
+    renderBoard();
+    addFeed('↻ Tarefas sincronizadas');
+  } catch(err) { addFeed('❌ Erro ao sincronizar: '+err.message); }
+}
+
+// Auto-refresh on load
+refreshAll();
+</script>
+</body>
+</html>
