@@ -61,6 +61,23 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_thoughts_name ON agent_thoughts(name);
+  CREATE TABLE IF NOT EXISTS agent_messages (
+    id TEXT PRIMARY KEY,
+    from_agent TEXT NOT NULL,
+    to_agent TEXT DEFAULT NULL,
+    task_id TEXT DEFAULT NULL,
+    type TEXT NOT NULL DEFAULT 'chat'
+      CHECK(type IN ('chat','mention','system','request','response')),
+    subject TEXT DEFAULT NULL,
+    body TEXT NOT NULL,
+    read INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_from ON agent_messages(from_agent);
+  CREATE INDEX IF NOT EXISTS idx_messages_to ON agent_messages(to_agent);
+  CREATE INDEX IF NOT EXISTS idx_messages_task ON agent_messages(task_id);
+
   CREATE INDEX IF NOT EXISTS idx_token_usage_name ON agent_token_usage(name);
 `);
 
@@ -190,15 +207,18 @@ app.post('/api/tasks/:id/comments', auth, (req, res) => {
 const agents = new Map(); // agent_name -> { name, lastSeen, status }
 
 app.post('/api/agents/heartbeat', (req, res) => {
-  const { name, status } = req.body;
+  const { name, status, taskId, thinking } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
   // accept heartbeat without auth so agents can ping easily
-  agents.set(name, {
+  const data = {
     name,
     lastSeen: Date.now(),
     status: status || 'online',
-  });
-  broadcast({ type: 'agent:heartbeat', agent: agents.get(name) });
+  };
+  if (taskId) data.taskId = taskId;
+  if (thinking) data.thinking = thinking;
+  agents.set(name, data);
+  broadcast({ type: 'agent:heartbeat', agent: data });
   res.json({ ok: true });
 });
 
@@ -213,6 +233,97 @@ app.get('/api/agents', (req, res) => {
     });
   }
   res.json(list);
+});
+
+// ── Agent Chat / Messages ──────────────────────────────────────────────────
+
+// POST /api/agents/messages — Send a message to another agent
+app.post('/api/agents/messages', (req, res) => {
+  const { from, to, taskId, type, subject, body } = req.body;
+  if (!from || !body) return res.status(400).json({ error: 'from and body are required' });
+  if (!to && !taskId) return res.status(400).json({ error: 'to (agent) or taskId is required' });
+
+  const id = uuidv4();
+  const msgType = type || (to ? 'chat' : 'request');
+
+  db.prepare(
+    'INSERT INTO agent_messages (id, from_agent, to_agent, task_id, type, subject, body) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, from, to || null, taskId || null, msgType, subject || null, body);
+
+  const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
+
+  // Update agent thinking if it sent a message
+  const senderData = agents.get(from);
+  if (senderData) {
+    senderData.lastSeen = Date.now();
+    agents.set(from, senderData);
+  }
+
+  broadcast({
+    type: 'agent:message',
+    message: { id, from, to, taskId: taskId || null, type: msgType, subject: subject || null, body, created_at: message.created_at }
+  });
+
+  // Also add as comment on the task if taskId provided
+  if (taskId) {
+    const taskExists = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
+    if (taskExists) {
+      const bodyWithMention = to ? `${from} → ${to}: ${body}` : `${from}: ${body}`;
+      db.prepare('INSERT INTO comments (id, task_id, author, body) VALUES (?, ?, ?, ?)').run(
+        uuidv4(), taskId, from, bodyWithMention
+      );
+    }
+  }
+
+  res.status(201).json(message);
+});
+
+// GET /api/agents/messages — Get messages (filterable)
+app.get('/api/agents/messages', auth, (req, res) => {
+  const { from, to, taskId, limit, unread } = req.query;
+  let sql = 'SELECT * FROM agent_messages';
+  const clauses = [];
+  const params = [];
+
+  if (from) { clauses.push('from_agent = ?'); params.push(from); }
+  if (to) { clauses.push('to_agent = ?'); params.push(to); }
+  if (taskId) { clauses.push('task_id = ?'); params.push(taskId); }
+  if (unread === 'true') { clauses.push('read = 0'); }
+
+  if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
+  sql += ' ORDER BY created_at DESC';
+  if (limit) sql += ' LIMIT ' + parseInt(limit);
+  else sql += ' LIMIT 50';
+
+  res.json(db.prepare(sql).all(...params));
+});
+
+// PATCH /api/agents/messages/:id/read — Mark message as read
+app.patch('/api/agents/messages/:id/read', auth, (req, res) => {
+  db.prepare('UPDATE agent_messages SET read = 1 WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// GET /api/agents/messages/conversation/:agent1/:agent2 — Full conversation
+app.get('/api/agents/messages/conversation/:agent1/:agent2', auth, (req, res) => {
+  const msgs = db.prepare(`
+    SELECT * FROM agent_messages
+    WHERE (from_agent = ? AND to_agent = ?)
+       OR (from_agent = ? AND to_agent = ?)
+    ORDER BY created_at ASC
+  `).all(req.params.agent1, req.params.agent2, req.params.agent2, req.params.agent1);
+  res.json(msgs);
+});
+
+// GET /api/agents/messages/unread-count — Count of unread messages per agent
+app.get('/api/agents/messages/unread-count', auth, (req, res) => {
+  const counts = db.prepare(`
+    SELECT to_agent as agent, COUNT(*) as count
+    FROM agent_messages
+    WHERE read = 0 AND to_agent IS NOT NULL
+    GROUP BY to_agent
+  `).all();
+  res.json(counts);
 });
 
 // ── Agent Thinking ────────────────────────────────────────────────────────
