@@ -1,4 +1,13 @@
-<!DOCTYPE html>
+#!/usr/bin/env python3
+import os
+
+path = "/home/pcgustavo/.openclaw/workspace/agent-flow/public/index.html"
+
+# Split into parts to avoid massive single string
+parts = []
+
+# Part 1: everything up to and including the approval-section div
+part1 = '''<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -370,3 +379,10 @@
     <div class="column-body" id="col-rejected"></div>
   </div>
 </div>
+'''
+
+with open(path, 'w') as f:
+    f.write(part1)
+
+print(f"Part 1 written: {os.path.getsize(path)} bytes")
+PYEOF

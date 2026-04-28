@@ -15,7 +15,11 @@ const DB_PATH = path.join(__dirname, 'data', 'agent-flow.db');
 // ── Database ──────────────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = 32000'); // 32MB
+db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = ON');
+db.pragma('mmap_size = 268435456'); // 256MB memory map
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
@@ -79,6 +83,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_to ON agent_messages(to_agent);
   CREATE INDEX IF NOT EXISTS idx_messages_task ON agent_messages(task_id);
 
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
   CREATE INDEX IF NOT EXISTS idx_token_usage_name ON agent_token_usage(name);
 `);
 
@@ -108,6 +114,44 @@ if (count.cnt === 0) {
   tx();
 }
 
+// ── Cache ─────────────────────────────────────────────────────────────────
+const taskCache = { tasks: null, timestamp: 0, ttl: 2000 };
+const agentHeartbeatBuffer = new Map(); // flush a cada 5s
+
+function getTasksCached(query) {
+  const now = Date.now();
+  if (now - taskCache.timestamp < taskCache.ttl && taskCache.tasks && !query.status && !query.assigned_to) {
+    return taskCache.tasks;
+  }
+  let sql = 'SELECT * FROM tasks';
+  const params = [];
+  const clauses = [];
+  if (query.status) { clauses.push('status = ?'); params.push(query.status); }
+  if (query.assigned_to) { clauses.push('assigned_to = ?'); params.push(query.assigned_to); }
+  if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
+  sql += ' ORDER BY created_at DESC';
+  const tasks = db.prepare(sql).all(...params);
+  if (!query.status && !query.assigned_to) {
+    taskCache.tasks = tasks;
+    taskCache.timestamp = now;
+  }
+  return tasks;
+}
+
+function invalidateTaskCache() { taskCache.timestamp = 0; }
+
+// Heartbeat flush a cada 5s (bufferiza pensamentos no banco)
+setInterval(() => {
+  if (agentHeartbeatBuffer.size === 0) return;
+  const insert = db.prepare('INSERT OR IGNORE INTO agent_thoughts (id, name, thinking, task_id) VALUES (?, ?, ?, ?)');
+  const tx = db.transaction(() => {
+    for (const [key, val] of agentHeartbeatBuffer) {
+      insert.run(uuidv4(), val.name, val.thinking, val.taskId || null);
+    }
+  });
+  try { tx(); agentHeartbeatBuffer.clear(); } catch(e) { /* ignore write errors */ }
+}, 5000);
+
 // ── Express App ──────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
@@ -127,14 +171,7 @@ function auth(req, res, next) {
 // GET /api/tasks
 app.get('/api/tasks', auth, (req, res) => {
   const { status, assigned_to } = req.query;
-  let sql = 'SELECT * FROM tasks';
-  const params = [];
-  const clauses = [];
-  if (status) { clauses.push('status = ?'); params.push(status); }
-  if (assigned_to) { clauses.push('assigned_to = ?'); params.push(assigned_to); }
-  if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
-  sql += ' ORDER BY created_at DESC';
-  const tasks = db.prepare(sql).all(...params);
+  const tasks = getTasksCached({ status, assigned_to });
   res.json(tasks);
 });
 
@@ -147,6 +184,7 @@ app.post('/api/tasks', auth, (req, res) => {
     'INSERT INTO tasks (id, title, description, status, assigned_to, priority) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(id, title, description || '', 'backlog', assigned_to || null, priority || 'medium');
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  invalidateTaskCache();
   broadcast({ type: 'task:created', task });
   res.status(201).json(task);
 });
@@ -180,6 +218,7 @@ app.patch('/api/tasks/:id', auth, (req, res) => {
 
   db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...params);
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  invalidateTaskCache();
   broadcast({ type: 'task:updated', task: updated, changes: req.body });
   res.json(updated);
 });
@@ -189,6 +228,7 @@ app.delete('/api/tasks/:id', auth, (req, res) => {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
   db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+  invalidateTaskCache();
   broadcast({ type: 'task:deleted', taskId: req.params.id });
   res.json({ ok: true });
 });
@@ -339,10 +379,10 @@ app.post('/api/agents/thinking', (req, res) => {
   if (!name) return res.status(400).json({ error: 'name is required' });
   if (!thinking) return res.status(400).json({ error: 'thinking is required' });
 
-  const id = uuidv4();
-  db.prepare(
-    'INSERT INTO agent_thoughts (id, name, thinking, task_id) VALUES (?, ?, ?, ?)'
-  ).run(id, name, thinking, taskId || null);
+  // Bufferizar no heartbeat buffer (flush a cada 5s)
+  agentHeartbeatBuffer.set('think:' + name + ':' + Date.now(), {
+    name, thinking, taskId: taskId || null
+  });
 
   // Update agent in-memory with thinking
   const agentData = agents.get(name);
@@ -355,7 +395,7 @@ app.post('/api/agents/thinking', (req, res) => {
 
   const payload = { name, thinking, taskId: taskId || null, timestamp: new Date().toISOString() };
   broadcast({ type: 'agent:thinking', agent: payload });
-  res.status(201).json({ ok: true, id });
+  res.status(201).json({ ok: true });
 });
 
 // GET /api/agents/thinking — Get current thinking of each agent
