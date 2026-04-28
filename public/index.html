@@ -288,7 +288,7 @@
 <body>
 <header>
   <div class="brand">
-    <h1>Agent <span>Flow</span></h1>
+    <h1>⚡ Agent <span>Flow</span></h1>
     <span class="conn-indicator connected" id="conn-indicator">
       <span class="dot"></span>
       <span id="conn-text">Conectado</span>
@@ -298,19 +298,19 @@
     <button class="btn btn-primary btn-sm" onclick="showNewTaskForm()" id="btn-new-task">
       <span class="btn-text">+ Nova Tarefa</span>
     </button>
-    <button class="btn btn-outline btn-sm" onclick="openReportModal()">Relatrio</button>
+    <button class="btn btn-outline btn-sm" onclick="openReportModal()">📊 Relatrio</button>
     <button class="btn btn-outline btn-sm" onclick="openAgentChat()" id="btn-chat" style="position:relative">
       Chat <span class="badge" id="chat-badge" style="display:none;position:absolute;top:-5px;right:-5px">0</span>
     </button>
-    <button class="btn btn-outline btn-sm" onclick="refreshAll()">Sincronizar</button>
+    <button class="btn btn-outline btn-sm" onclick="refreshAll()">↻ Sincronizar</button>
   </div>
 </header>
 <div class="agent-bar" id="agent-bar">
-  <span class="agent-bar-label">Agentes:</span>
+  <span class="agent-bar-label">🕵️ Agentes:/span>
   <span id="agent-list" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">Nenhum agente ativo</span>
 </div>
 <div class="live-feed" id="live-feed">
-  <span style="flex-shrink:0;margin-right:6px">Feed</span>
+  <span style="flex-shrink:0;margin-right:6px">📡 /span>
   <div class="feed-scroll" id="feed-scroll"><div id="feed-list"></div></div>
 </div>
 <div class="new-task-form" id="new-task-form">
@@ -325,9 +325,9 @@
   <div class="field" style="flex:0 0 130px">
     <label>Prioridade</label>
     <select id="nt-prio">
-      <option value="low">Baixa</option>
+      <option value="low">🟦 Baixa</option>
       <option value="medium" selected>Mdia</option>
-      <option value="high">Alta</option>
+      <option value="high">🟧 Alta</option>
       <option value="critical">Crtica</option>
     </select>
   </div>
@@ -336,37 +336,689 @@
     <select id="nt-agent"><option value="">Ninguém</option></select>
   </div>
   <button class="btn btn-primary" onclick="createTask()" id="btn-create-task" style="height:36px">
-    <span class="spinner"></span><span class="btn-text">Criar</span>
+    <span class="spinner"></span><span class="btn-text"Criar/span>
   </button>
-  <button class="btn btn-outline btn-sm" onclick="hideNewTaskForm()">Cancelar</button>
+  <button class="btn btn-outline btn-sm" onclick="hideNewTaskForm()"Cancelar/button>
 </div>
 <div class="board" id="board">
   <div class="column col-backlog" data-status="backlog">
-    <div class="column-header" onclick="showNewTaskForm()">Backlog <span class="count" id="count-backlog">0</span></div>
+    <div class="column-header" onclick="showNewTaskForm()">📋 Backlog <span class="count" id="count-backlog">0</span></div>
     <div class="column-body" id="col-backlog"></div>
   </div>
   <div class="column col-assigned" data-status="assigned">
-    <div class="column-header">Atribudo <span class="count" id="count-assigned">0</span></div>
+    <div class="column-header">🎯 Atribudo <span class="count" id="count-assigned">0</span></div>
     <div class="column-body" id="col-assigned"></div>
   </div>
   <div class="column col-in_progress" data-status="in_progress">
-    <div class="column-header">Em Progresso <span class="count" id="count-in_progress">0</span></div>
+    <div class="column-header">⚙️ Em Progresso <span class="count" id="count-in_progress">0</span></div>
     <div class="column-body" id="col-in_progress"></div>
   </div>
   <div class="column col-review" data-status="review">
-    <div class="column-header">Reviso <span class="count" id="count-review">0</span></div>
+    <div class="column-header">👀 Reviso <span class="count" id="count-review">0</span></div>
     <div class="column-body" id="col-review"></div>
   </div>
   <div class="column col-done" data-status="done">
-    <div class="column-header">Concludo <span class="count" id="count-done">0</span></div>
+    <div class="column-header">✅ Concludo <span class="count" id="count-done">0</span></div>
     <div class="column-body" id="col-done"></div>
   </div>
   <div class="column col-waiting_approval" data-status="waiting_approval">
-    <div class="column-header" style="background:var(--accent);color:#fff">Aguardando Aprovaco <span class="count" id="count-waiting_approval">0</span></div>
+    <div class="column-header" style="background:var(--accent);color:#fff">👑 Aguardando Aprovacao span class="count" id="count-waiting_approval">0</span></div>
     <div class="column-body" id="col-waiting_approval"></div>
   </div>
   <div class="column col-rejected" data-status="rejected">
-    <div class="column-header">Rejeitado <span class="count" id="count-rejected">0</span></div>
+    <div class="column-header">❌ Rejeitado <span class="count" id="count-rejected">0</span></div>
     <div class="column-body" id="col-rejected"></div>
   </div>
 </div>
+
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" id="task-modal">
+    <div class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button class="btn-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-id" id="modal-id"></div>
+    <label>Titulo</label>
+    <input type="text" id="modal-edit-title">
+    <label>Descricao</label>
+    <textarea id="modal-edit-desc"></textarea>
+    <label>Status</label>
+    <div class="modal-status" id="modal-status-btns"></div>
+    <div style="display:flex;gap:16px">
+      <div style="flex:1">
+        <label>Responsavel</label>
+        <select id="modal-edit-agent"></select>
+      </div>
+      <div style="flex:1">
+        <label>Prioridade</label>
+        <select id="modal-edit-prio">
+          <option value="low">🟦 Baixa</option>
+          <option value="medium">🟨 Media</option>
+          <option value="high">🟧 Alta</option>
+          <option value="critical">🔥 Critica</option>
+        </select>
+      </div>
+    </div>
+    <div class="exec-section" id="exec-section">
+      <h3>⚡ Em Execucao/h3>
+      <div id="execution-info"></div>
+    </div>
+    <div class="approval-section" id="approval-section">
+      <h3>👑 Aguardando sua Aprovacao/h3>
+      <div class="approval-question" id="approval-question"></div>
+      <div class="approval-actions">
+        <button class="btn" style="background:var(--green)" onclick="approveTask()">✅ Aprovar/button>
+        <button class="btn" style="background:var(--red)" onclick="rejectTask()">❌ Rejeitar/button>
+      </div>
+      <input type="hidden" id="approval-task-id">
+    </div>
+    <div class="request-section">
+      <h3 style="font-size:.82rem;margin-bottom:6px;display:flex;align-items:center;gap:6px;padding-top:10px;border-top:1px solid var(--border)">👑 Solicitar Aprovacao do PO/h3>
+      <input type="text" id="modal-approval-question" placeholder="Descreva o que precisa de aprovacao..." style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8rem;margin-bottom:6px">
+      <button class="btn btn-sm" onclick="requestApproval()">👑 Solicitar Aprovacao/button>
+    </div>
+    <div class="comments-section">
+      <h3>💬 Comentarios/h3>
+      <div id="comments-list"></div>
+      <div class="comment-form">
+        <input type="text" id="comment-input" placeholder="Adicionar comentario...">
+        <button class="btn btn-sm" onclick="addComment()">➡ Enviar/button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-sm" onclick="deleteTask()" style="margin-right:auto">🗑 Excluir/button>
+      <button class="btn btn-outline btn-sm" onclick="closeModal()"Cancelar/button>
+      <button class="btn btn-sm" onclick="saveTask()">💾 Salvar/button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="report-overlay" onclick="closeReportModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:720px">
+    <div class="modal-header">
+      <h2 style="font-size:1.2rem">📊 Relatorio de Tokens/h2>
+      <button class="btn-close" onclick="closeReportModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="report-body">
+      <div style="text-align:center;padding:24px;color:var(--text-muted);font-size:.9rem">Carregando relatorio...</div>
+    </div>
+    <div class="modal-actions" style="padding:0 20px 16px">
+      <button class="btn btn-outline btn-sm" onclick="closeReportModal()"Fechar/button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<div class="modal-overlay" id="chat-overlay" onclick="closeAgentChat()">
+  <div class="modal modal-chat" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Chat entre Agentes</h3>
+      <button class="btn-close" onclick="closeAgentChat()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="chat-messages" id="chat-messages">
+        <p style="color:var(--text-muted);font-size:13px">Carregando...</p>
+      </div>
+      <div class="chat-input-area">
+        <select id="chat-to" style="width:140px;flex-shrink:0">
+          <option value="Nina">Nina</option>
+          <option value="Bento">Bento</option>
+          <option value="Luna">Luna</option>
+          <option value="Teco">Teco</option>
+          <option value="Dock">Dock</option>
+          <option value="PO">PO</option>
+        </select>
+        <input type="text" id="chat-input" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter') sendAgentMessage()">
+        <button class="btn btn-sm" onclick="sendAgentMessage()">➡ Enviar/button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = '';
+const AUTH_TOKEN = 'agent-5678';
+const WS_URL = 'ws://'+location.host;
+const COLUMNS = ['backlog','assigned','in_progress','review','waiting_approval','done','rejected'];
+const STATUS_LABELS = {
+  backlog:'Backlog', assigned:'Atribuido', in_progress:'Em Progresso',
+  review:'Revisao', waiting_approval:'Aguardando Aprovacao',
+  done:'Concluido', rejected:'Rejeitado'
+};
+const agentNames = ['Bento','Nina','Teco','Dock','Luna'];
+
+let tasks = [];
+let agents = {};
+let currentModalTaskId = null;
+let draggedId = null;
+let feedCount = 0;
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function timeAgo(dateStr) {
+  const now=new Date();
+  const d=new Date(dateStr+'Z');
+  const sec=Math.floor((now-d)/1000);
+  if(sec<60)return 'agora';
+  const min=Math.floor(sec/60);
+  if(min<60)return min+'min';
+  const h=Math.floor(min/60);
+  if(h<24)return h+'h';
+  return Math.floor(h/24)+'d';
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'x-auth-token':AUTH_TOKEN,'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API_BASE+path, opts);
+  if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error||r.statusText); }
+  return r.json();
+}
+
+function showToast(msg, type) {
+  type = type || 'info';
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = '<span>'+msg+'</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>';
+  container.appendChild(el);
+  setTimeout(() => { el.style.animation = 'toastOut .3s ease forwards'; setTimeout(() => el.remove(), 350); }, 4000);
+}
+
+let ws = null;
+let wsReconnectCount = 0;
+
+function setConnState(state) {
+  const ind = document.getElementById('conn-indicator');
+  const txt = document.getElementById('conn-text');
+  ind.className = 'conn-indicator ' + state;
+  if (state === 'connected') { txt.textContent = 'Conectado'; wsReconnectCount = 0; }
+  else if (state === 'disconnected') { txt.textContent = 'Desconectado'; }
+  else { txt.textContent = 'Reconectando...'; }
+}
+
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    setConnState('connected');
+    addFeed('Conectado ao servidor');
+  };
+  ws.onclose = () => {
+    setConnState('disconnected');
+    wsReconnectCount++;
+    addFeed('Conexao perdida. Reconectando em 3s...');
+    setTimeout(connectWS, 3000);
+  };
+  ws.onmessage = (e) => {
+    try { handleWSMessage(JSON.parse(e.data)); } catch(err) {}
+  };
+}
+connectWS();
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'task:created':
+      tasks.unshift(msg.task); renderBoard();
+      addFeed('Nova tarefa: "'+msg.task.title+'"');
+      break;
+    case 'task:updated':
+      tasks = tasks.map(t => t.id===msg.task.id ? msg.task : t); renderBoard();
+      if (msg.changes && msg.changes.status) addFeed('"'+msg.task.title+'" -> '+(STATUS_LABELS[msg.task.status]||msg.task.status));
+      if (msg.changes && msg.changes.assigned_to) addFeed('"'+msg.task.title+'" atribuida para '+msg.changes.assigned_to);
+      if (currentModalTaskId===msg.task.id) openModal(msg.task.id);
+      break;
+    case 'task:deleted':
+      tasks = tasks.filter(t => t.id!==msg.taskId); renderBoard();
+      addFeed('Tarefa removida');
+      break;
+    case 'task:comment':
+      if (currentModalTaskId===msg.taskId) loadComments(msg.taskId);
+      addFeed(msg.comment.author+': "'+esc(msg.comment.body).substring(0,50)+'"');
+      break;
+    case 'agent:heartbeat':
+      agents[msg.agent.name] = msg.agent; renderAgents();
+      if (msg.agent.thinking) addFeed(msg.agent.name+' esta pensando...');
+      break;
+    case 'agent:thinking':
+      if (agents[msg.agent.name]) {
+        agents[msg.agent.name].thinking=msg.agent.thinking;
+        if (msg.agent.taskId) agents[msg.agent.name].taskId=msg.agent.taskId;
+      }
+      renderAgents();
+      break;
+    case 'agent:tokens':
+      addFeed(msg.usage.name+' usou '+msg.usage.tokensIn+' in / '+msg.usage.tokensOut+' out (US$ '+msg.usage.cost.toFixed(4)+')');
+      break;
+    case 'agent:message':
+      addFeed(esc(msg.message.from)+' -> '+esc(msg.message.to||'todos')+': '+esc(msg.message.body).substring(0,50));
+      if (document.getElementById('chat-overlay').classList.contains('active')) openAgentChat();
+      checkUnreadMessages();
+      break;
+    case 'connected': addFeed(msg.message); break;
+  }
+}
+
+function addFeed(text) {
+  const list = document.getElementById('feed-list');
+  const ts = new Date().toLocaleTimeString('pt-BR');
+  const item = document.createElement('div');
+  item.className = 'feed-item';
+  item.textContent = '['+ts+'] '+text;
+  list.appendChild(item);
+  feedCount++;
+  // Keep only last 20
+  while (list.children.length > 20) list.removeChild(list.firstChild);
+}
+
+function renderAgents() {
+  const list=document.getElementById('agent-list');
+  const names=Object.keys(agents);
+  if (!names.length) {
+    list.innerHTML = '<span style="color:var(--text-muted);font-size:.78rem">Nenhum agente ativo</span>';
+  } else {
+    list.innerHTML='';
+    for (const name of names) {
+      const d=agents[name];
+      const isOnline = d.status==='online' || (Date.now() - d.lastSeen) < 120000;
+      const dc=isOnline ? 'dot-online' : 'dot-offline';
+      const cssClass = isOnline ? (d.taskId ? 'busy' : 'idle') : 'offline';
+      const el=document.createElement('span');
+      el.className='agent-item '+cssClass;
+      let html='<span class="agent-dot '+dc+'"></span><span class="agent-name">'+esc(name)+'</span>';
+      if (d.taskId && tasks.length) {
+        const task=tasks.find(t=>t.id===d.taskId);
+        if (task) html+=' <span class="agent-task-ref" title="'+esc(task.title)+'">'+esc(task.title.substring(0,18))+'</span>';
+      }
+      if (d.thinking) {
+        html+=' <span class="agent-thinking-indicator"><span class="agent-thinking-dot"></span><span class="agent-thinking-dot"></span><span class="agent-thinking-dot"></span></span>';
+      }
+      el.innerHTML=html;
+      list.appendChild(el);
+    }
+  }
+  populateAgentSelects();
+}
+
+function populateAgentSelects() {
+  const seen=new Set();
+  const opts=[];
+  opts.push('<option value=""> Ninguem </option>');
+  for (const n of agentNames) { if(!seen.has(n)){ seen.add(n); opts.push('<option value="'+n+'">'+n+'</option>'); } }
+  for (const n of Object.keys(agents)) { if(!seen.has(n)){ seen.add(n); opts.push('<option value="'+n+'">'+n+'</option>'); } }
+  for (const t of tasks) { if(t.assigned_to&&!seen.has(t.assigned_to)){ seen.add(t.assigned_to); opts.push('<option value="'+t.assigned_to+'">'+t.assigned_to+'</option>'); } }
+  const o=opts.join('');
+  document.getElementById('modal-edit-agent').innerHTML=o;
+  document.getElementById('nt-agent').innerHTML=o;
+}
+
+function renderBoard() {
+  for (const st of COLUMNS) {
+    const col=document.getElementById('col-'+st);
+    const cnt=document.getElementById('count-'+st);
+    const filtered=tasks.filter(t=>t.status===st);
+    cnt.textContent=filtered.length;
+    if (!filtered.length) {
+      const hints = {
+        backlog:'Clique em "+ Nova Tarefa" ou no header para criar',
+        assigned:'Atribua uma task a um agente arrastando ou editando',
+        in_progress:'Mova uma task para ca quando o agente comecar',
+        waiting_approval:'Tasks prontas vao para ca aguardando o PO',
+        done:'Tasks concluidas aparecem aqui automaticamente',
+        review:'Tasks em revisao aguardando feedback',
+        rejected:'Tasks rejeitadas pelo PO'
+      };
+      col.innerHTML='<div class="empty-col"><div class="empty-icon">&#9744;</div>'+esc(hints[st]||'Nenhuma tarefa')+'</div>';
+      continue;
+    }
+    col.innerHTML=filtered.map(t=>renderCard(t)).join('');
+    for (const card of col.querySelectorAll('.card')) {
+      card.addEventListener('dragstart',onDragStart);
+      card.addEventListener('dragend',onDragEnd);
+    }
+  }
+}
+
+function renderCard(task) {
+  const pc='prio-'+task.priority;
+  const pl={low:'Baixa',medium:'Media',high:'Alta',critical:'Critica'}[task.priority]||task.priority;
+  let extra='';
+  for (const name of Object.keys(agents)) {
+    if (agents[name].taskId===task.id) {
+      extra=' <span class="card-executing-dot" title="'+esc(name)+' esta executando"></span>';
+      break;
+    }
+  }
+  if (task.status==='waiting_approval' && task.approval==='pending') extra+=' <span class="approval-pending-badge">PO</span>';
+  return '<div class="card" draggable="true" data-id="'+task.id+'" onclick="openModal(''+task.id+'')">'
+    +'<div class="card-title">'+esc(task.title)+extra+'</div>'
+    +'<div class="card-meta"><span class="card-meta-left"><span class="priority-badge '+pc+'">'+pl+'</span></span>'
+    +'<span class="card-agent">'+(task.assigned_to?esc(task.assigned_to):'')+'</span></div></div>';
+}
+
+function onDragStart(e) {
+  draggedId=e.target.closest('.card').dataset.id;
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragEnd(e) {
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.column.drag-over').forEach(c => c.classList.remove('drag-over'));
+  draggedId=null;
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  const col = e.target.closest('.column');
+  if (col) col.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+  const col = e.target.closest('.column');
+  if (col) col.classList.remove('drag-over');
+}
+
+async function onDrop(e,st) {
+  e.preventDefault();
+  document.querySelectorAll('.column.drag-over').forEach(c => c.classList.remove('drag-over'));
+  if (!draggedId||tasks.find(t=>t.id===draggedId)?.status===st) return;
+  try {
+    await api('PATCH','/api/tasks/'+draggedId,{status:st});
+    addFeed('Tarefa movida para '+STATUS_LABELS[st]);
+  } catch(err) {
+    addFeed('Erro ao mover: '+err.message);
+    showToast('Erro ao mover tarefa: '+err.message, 'error');
+  }
+}
+
+async function openModal(id) {
+  currentModalTaskId=id;
+  try {
+    const data=await api('GET','/api/tasks/'+id);
+    document.getElementById('modal-title').textContent=data.title;
+    document.getElementById('modal-id').textContent='#'+data.id.substring(0,8);
+    document.getElementById('modal-edit-title').value=data.title;
+    document.getElementById('modal-edit-desc').value=data.description||'';
+    const sb=document.getElementById('modal-status-btns');
+    sb.innerHTML=COLUMNS.map(s=>'<button class="status-btn '+(data.status===s?'active':'')+'" onclick="quickChangeStatus(''+s+'')">'+(STATUS_LABELS[s]||s)+'</button>').join('');
+    document.getElementById('modal-edit-agent').value=data.assigned_to||'';
+    document.getElementById('modal-edit-prio').value=data.priority;
+    loadComments(id);
+
+    // Execution section
+    const execSection=document.getElementById('exec-section');
+    const execInfo=document.getElementById('execution-info');
+    const executingAgents=Object.keys(agents).filter(n=>agents[n].taskId===id);
+    if (executingAgents.length) {
+      let html='';
+      for (const aname of executingAgents) {
+        const d=agents[aname];
+        html+='<div class="exec-agent"><span class="exec-agent-name">'+esc(aname)+'</span>';
+        if (d.thinking) html+='<div class="exec-agent-thinking">'+esc(d.thinking)+'</div>';
+        html+='</div>';
+      }
+      execInfo.innerHTML=html;
+      execSection.classList.add('visible');
+    } else {
+      execSection.classList.remove('visible');
+    }
+
+    // Approval section
+    const appSection=document.getElementById('approval-section');
+    if (data.approval==='pending') {
+      appSection.classList.add('visible');
+      document.getElementById('approval-question').textContent=data.approval_question||'O agente solicitou sua aprovacao.';
+      document.getElementById('approval-task-id').value=id;
+    } else {
+      appSection.classList.remove('visible');
+    }
+
+    document.getElementById('modal-overlay').classList.add('active');
+  } catch(err) {
+    addFeed('Erro ao carregar: '+err.message);
+    showToast('Erro ao carregar tarefa', 'error');
+  }
+}
+
+function closeModal(e) {
+  if (e&&e.target!==e.currentTarget) return;
+  document.getElementById('modal-overlay').classList.remove('active');
+  currentModalTaskId=null;
+}
+
+// ESC key closes modals
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    if (document.getElementById('modal-overlay').classList.contains('active')) closeModal();
+    if (document.getElementById('report-overlay').classList.contains('active')) closeReportModal();
+    if (document.getElementById('chat-overlay').classList.contains('active')) closeAgentChat();
+    if (document.getElementById('new-task-form').classList.contains('active')) hideNewTaskForm();
+  }
+});
+
+async function quickChangeStatus(st) {
+  if (!currentModalTaskId) return;
+  try {
+    await api('PATCH','/api/tasks/'+currentModalTaskId,{status:st});
+    addFeed('Status alterado para '+STATUS_LABELS[st]);
+    openModal(currentModalTaskId);
+  } catch(err) {
+    addFeed('Erro: '+err.message);
+  }
+}
+
+async function saveTask() {
+  const id=currentModalTaskId;
+  if (!id) return;
+  const title=document.getElementById('modal-edit-title').value.trim();
+  if (!title) { showToast('Titulo e obrigatorio', 'error'); return; }
+  try {
+    await api('PATCH','/api/tasks/'+id,{
+      title, description:document.getElementById('modal-edit-desc').value,
+      assigned_to:document.getElementById('modal-edit-agent').value||null,
+      priority:document.getElementById('modal-edit-prio').value
+    });
+    addFeed('Tarefa salva');
+    closeModal();
+  } catch(err) { showToast('Erro ao salvar: '+err.message, 'error'); }
+}
+
+async function loadComments(taskId) {
+  try {
+    const comments=await api('GET','/api/tasks/'+taskId+'/comments');
+    const list=document.getElementById('comments-list');
+    if (!comments.length) { list.innerHTML='<p style="font-size:.78rem;color:var(--text-muted)">Nenhum comentario ainda</p>'; return; }
+    list.innerHTML=comments.map(c=>'<div class="comment"><div class="comment-meta"><strong>'+esc(c.author)+'</strong> '+timeAgo(c.created_at)+'</div><div class="comment-body">'+esc(c.body)+'</div></div>').join('');
+  } catch(err) { document.getElementById('comments-list').innerHTML='<p style="color:var(--red);font-size:.78rem">Erro ao carregar</p>'; }
+}
+
+async function addComment() {
+  const input=document.getElementById('comment-input');
+  const body=input.value.trim();
+  if (!body||!currentModalTaskId) return;
+  input.value='';
+  try {
+    await api('POST','/api/tasks/'+currentModalTaskId+'/comments',{author:'PO',body});
+    loadComments(currentModalTaskId);
+    addFeed('Comentario adicionado');
+  } catch(err) { addFeed('Erro: '+err.message); }
+}
+
+async function requestApproval() {
+  const question=document.getElementById('modal-approval-question').value.trim();
+  if (!currentModalTaskId||!question) return;
+  try {
+    await api('PATCH','/api/tasks/'+currentModalTaskId,{status:'waiting_approval',approval:'pending',approval_question:question});
+    await api('POST','/api/tasks/'+currentModalTaskId+'/comments',{
+      author:document.getElementById('modal-edit-agent').value||'Agente',
+      body:'SOLICITA APROVACAO: '+question
+    });
+    addFeed('Solicitacao de aprovacao enviada!');
+    closeModal();
+  } catch(err) { showToast('Erro: '+err.message, 'error'); }
+}
+
+async function deleteTask() {
+  if (!currentModalTaskId||!confirm('Tem certeza que deseja excluir esta tarefa?')) return;
+  try { await api('DELETE','/api/tasks/'+currentModalTaskId); addFeed('Tarefa excluida'); closeModal(); }
+  catch(err) { showToast('Erro: '+err.message, 'error'); }
+}
+
+function showNewTaskForm() {
+  document.getElementById('new-task-form').classList.add('active');
+  populateAgentSelects();
+  document.getElementById('nt-title').focus();
+  document.getElementById('btn-new-task').style.display = 'none';
+}
+
+function hideNewTaskForm() {
+  document.getElementById('new-task-form').classList.remove('active');
+  document.getElementById('btn-new-task').style.display = '';
+}
+
+async function createTask() {
+  const title=document.getElementById('nt-title').value.trim();
+  if (!title) { showToast('Titulo e obrigatorio', 'error'); return; }
+  const btn = document.getElementById('btn-create-task');
+  btn.classList.add('loading');
+  try {
+    await api('POST','/api/tasks',{
+      title,
+      description:document.getElementById('nt-desc').value.trim(),
+      assigned_to:document.getElementById('nt-agent').value||null,
+      priority:document.getElementById('nt-prio').value,
+    });
+    document.getElementById('nt-title').value='';
+    document.getElementById('nt-desc').value='';
+    hideNewTaskForm();
+    addFeed('Tarefa criada!');
+    showToast('Tarefa criada com sucesso', 'success');
+  } catch(err) {
+    showToast('Erro ao criar: '+err.message, 'error');
+  } finally {
+    btn.classList.remove('loading');
+  }
+}
+
+async function refreshAll() {
+  try {
+    const data=await api('GET','/api/tasks');
+    tasks=data;
+    renderBoard();
+    addFeed('Tarefas sincronizadas');
+    showToast('Sincronizado', 'success');
+  } catch(err) {
+    addFeed('Erro ao sincronizar: '+err.message);
+    showToast('Erro de conexao', 'error');
+  }
+}
+
+// Report Modal
+function openReportModal() {
+  document.getElementById('report-overlay').classList.add('active');
+  loadReport();
+}
+function closeReportModal(e) {
+  if (e&&e.target!==e.currentTarget) return;
+  document.getElementById('report-overlay').classList.remove('active');
+}
+async function loadReport() {
+  const body=document.getElementById('report-body');
+  try {
+    const data=await api('GET','/api/agents/tokens/summary');
+    let html='<table class="report-table"><thead><tr><th>Agente</th><th>Tok In</th><th>Tok Out</th><th>Total</th><th>Custo (US$)</th><th>Req</th></tr></thead><tbody>';
+    for (const a of data.byAgent) {
+      html+='<tr><td><strong>'+esc(a.name)+'</strong></td><td>'+Number(a.total_tokens_in).toLocaleString()+'</td><td>'+Number(a.total_tokens_out).toLocaleString()+'</td><td>'+Number(a.total_tokens).toLocaleString()+'</td><td>US$ '+Number(a.total_cost).toFixed(4)+'</td><td>'+a.usage_count+'</td></tr>';
+    }
+    if (data.grandTotal) {
+      html+='<tr class="total-row"><td><strong>Total Geral</strong></td><td>'+Number(data.grandTotal.total_tokens_in).toLocaleString()+'</td><td>'+Number(data.grandTotal.total_tokens_out).toLocaleString()+'</td><td>'+Number(data.grandTotal.total_tokens).toLocaleString()+'</td><td>US$ '+Number(data.grandTotal.total_cost).toFixed(4)+'</td><td>'+data.grandTotal.usage_count+'</td></tr>';
+    }
+    html+='</tbody></table>';
+    html+='<p style="font-size:11px;color:var(--text-muted);margin-top:12px">Precificacao: DeepSeek ~$0.27/M input . $1.10/M output</p>';
+    body.innerHTML=html;
+  } catch(err) {
+    body.innerHTML='<div style="text-align:center;padding:24px;color:var(--red);font-size:.9rem">Erro: '+esc(err.message)+'</div>';
+  }
+}
+
+// Approval
+async function approveTask() {
+  const id=document.getElementById('approval-task-id').value;
+  if (!id) return;
+  try {
+    await api('PATCH','/api/tasks/'+id,{status:'done',approval:'approved'});
+    await api('POST','/api/tasks/'+id+'/comments',{author:'PO',body:'APROVADO - Pode seguir!'});
+    closeModal();
+    addFeed('Tarefa aprovada!');
+    showToast('Tarefa aprovada com sucesso', 'success');
+  } catch(err) { showToast('Erro: '+err.message, 'error'); }
+}
+
+async function rejectTask() {
+  const id=document.getElementById('approval-task-id').value;
+  if (!id) return;
+  try {
+    await api('PATCH','/api/tasks/'+id,{status:'rejected',approval:'rejected'});
+    await api('POST','/api/tasks/'+id+'/comments',{author:'PO',body:'REJEITADO - Precisa de ajustes'});
+    closeModal();
+    addFeed('Tarefa rejeitada');
+    showToast('Tarefa rejeitada', 'warning');
+  } catch(err) { showToast('Erro: '+err.message, 'error'); }
+}
+
+// Load on init
+refreshAll();
+
+// Agent Chat
+async function checkUnreadMessages() {
+  try {
+    const counts=await api('GET','/api/agents/messages/unread-count');
+    const total = counts.reduce((s,c) => s + (c.to_agent === 'PO' ? c.count : 0), 0);
+    const badge=document.getElementById('chat-badge');
+    if (total>0) { badge.textContent=total; badge.style.display=''; } else { badge.style.display='none'; }
+  } catch(e) {}
+}
+
+function openAgentChat() {
+  const overlay = document.getElementById('chat-overlay');
+  const messages = document.getElementById('chat-messages');
+  overlay.classList.add('active');
+  api('GET','/api/agents/messages?limit=50').then(msgs => {
+    messages.innerHTML = msgs.reverse().map(m => {
+      const isMine = m.from_agent === 'PO';
+      return '<div class="chat-msg'+(isMine?' chat-mine':'')+'"><div class="msg-top"><span class="chat-msg-author">'+esc(m.from_agent)+(m.to_agent?' <span style="color:var(--text-muted)"> &#8594;</span> '+esc(m.to_agent):'')+'</span></div>'+(m.subject?'<div class="chat-msg-subject">'+esc(m.subject)+'</div>':'')+'<div class="chat-msg-body">'+esc(m.body)+'</div><div class="chat-msg-time">'+timeAgo(m.created_at)+'</div></div>';
+    }).join('');
+    messages.scrollTop = messages.scrollHeight;
+  }).catch(()=>{});
+  checkUnreadMessages();
+}
+
+function closeAgentChat() {
+  document.getElementById('chat-overlay').classList.remove('active');
+}
+
+async function sendAgentMessage() {
+  const to = document.getElementById('chat-to').value;
+  const body = document.getElementById('chat-input').value.trim();
+  if (!body || !to) return;
+  document.getElementById('chat-input').value = '';
+  try {
+    await api('POST','/api/agents/messages', { from: 'PO', to, body, type: 'chat' });
+    addFeed('Mensagem enviada para '+to);
+    openAgentChat();
+  } catch(err) { showToast('Erro: '+err.message, 'error'); }
+}
+
+// Periodic checks
+setInterval(checkUnreadMessages, 15000);
+
+// Hook drag events to columns after render via mutation observer
+document.querySelectorAll('.column-body').forEach(el => {
+  el.addEventListener('dragover', onDragOver);
+  el.addEventListener('dragleave', onDragLeave);
+});
+</script>
+
+</body>
+</html>
