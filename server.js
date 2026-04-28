@@ -484,6 +484,93 @@ app.get('/api/agents/tokens/summary', auth, (req, res) => {
   res.json({ byAgent, grandTotal });
 });
 
+// ── Dashboard de Produtividade ────────────────────────────────────────────
+app.get('/api/dashboard', auth, (req, res) => {
+  const { days } = req.query;
+  const lookback = Math.max(1, parseInt(days) || 7);
+  const since = new Date(Date.now() - lookback * 86400_000).toISOString();
+
+  // Tasks concluídas por agente (período)
+  const doneByAgent = db.prepare(`
+    SELECT assigned_to as name, COUNT(*) as total
+    FROM tasks WHERE status = 'done' AND updated_at >= ? AND assigned_to IS NOT NULL
+    GROUP BY assigned_to ORDER BY total DESC
+  `).all(since);
+
+  // Tasks por status (contagem geral)
+  const byStatus = db.prepare(`
+    SELECT status, COUNT(*) as total FROM tasks GROUP BY status
+  `).all();
+
+  // Tempo médio entre created_at e done (horas)
+  const avgTime = db.prepare(`
+    SELECT
+      assigned_to as name,
+      ROUND(AVG(
+        (julianday(updated_at) - julianday(created_at)) * 24
+      ), 1) as avg_hours
+    FROM tasks WHERE status = 'done' AND assigned_to IS NOT NULL
+      AND updated_at >= ?
+    GROUP BY assigned_to
+  `).all(since);
+
+  // Tokens por agente (período)
+  const tokensByAgent = db.prepare(`
+    SELECT
+      name,
+      SUM(tokens_in) as tokens_in_total,
+      SUM(tokens_out) as tokens_out_total,
+      SUM(cost) as cost_total,
+      COUNT(*) as usage_count
+    FROM agent_token_usage
+    WHERE created_at >= ?
+    GROUP BY name ORDER BY cost_total DESC
+  `).all(since);
+
+  // Tasks por dia (últimos 7 dias)
+  const byDay = db.prepare(`
+    SELECT DATE(updated_at) as day, COUNT(*) as total
+    FROM tasks WHERE status = 'done' AND updated_at >= ?
+    GROUP BY DATE(updated_at) ORDER BY day ASC
+  `).all(since);
+
+  // Tasks por prioridade
+  const byPriority = db.prepare(`
+    SELECT priority, COUNT(*) as total FROM tasks GROUP BY priority
+  `).all();
+
+  // Total geral de tasks
+  const totals = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done,
+      SUM(CASE WHEN status IN ('backlog','assigned') THEN 1 ELSE 0 END) as pending,
+      SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress
+    FROM tasks
+  `).get();
+
+  // Heartbeat ativo dos agentes (online agora)
+  const now = Date.now();
+  const agentList = [];
+  for (const [name, data] of agents) {
+    const elapsed = now - data.lastSeen;
+    const active = elapsed <= HEARTBEAT_TIMEOUT_MS && data.status !== 'offline';
+    agentList.push({ name, status: active ? data.status : 'offline', lastSeen: data.lastSeen });
+  }
+
+  res.json({
+    period: { days: lookback, since },
+    totals,
+    byStatus,
+    byPriority,
+    doneByAgent,
+    avgTime,
+    tokensByAgent,
+    byDay,
+    activeAgents: agentList.filter(a => a.status !== 'offline'),
+  });
+});
+
 // ── WebSocket ─────────────────────────────────────────────────────────────
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
