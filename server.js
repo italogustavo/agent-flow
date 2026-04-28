@@ -27,6 +27,9 @@ db.exec(`
     assigned_to TEXT DEFAULT NULL,
     priority TEXT NOT NULL DEFAULT 'medium'
       CHECK(priority IN ('low','medium','high','critical')),
+    approval TEXT DEFAULT NULL
+      CHECK(approval IN ('pending','approved','rejected')),
+    approval_question TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -159,7 +162,7 @@ app.patch('/api/tasks/:id', auth, (req, res) => {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
-  const allowed = ['title', 'description', 'status', 'assigned_to', 'priority'];
+  const allowed = ['title', 'description', 'status', 'assigned_to', 'priority', 'approval', 'approval_question'];
   const sets = [];
   const params = [];
   for (const key of allowed) {

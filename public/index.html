@@ -148,6 +148,7 @@
   .col-review .column-header { border-left: 3px solid var(--accent2); }
   .col-done .column-header { border-left: 3px solid var(--green); }
   .col-rejected .column-header { border-left: 3px solid var(--red); }
+  .col-waiting_approval .column-header { border-left: 3px solid var(--accent); }
   .column-body {
     padding: 8px;
     overflow-y: auto;
@@ -447,6 +448,10 @@
       <div class="column-header">✅ Concluído <span class="count" id="count-done">0</span></div>
       <div class="column-body" id="col-done" ondragover="onDragOver(event)" ondrop="onDrop(event,'done')"></div>
     </div>
+    <div class="column col-waiting_approval" data-status="waiting_approval">
+      <div class="column-header" style="background:var(--accent);color:#fff">👑 Aguardando Aprovação <span class="count" id="count-waiting_approval">0</span></div>
+      <div class="column-body" id="col-waiting_approval" ondragover="onDragOver(event)" ondrop="onDrop(event,'waiting_approval')"></div>
+    </div>
     <div class="column col-rejected" data-status="rejected">
       <div class="column-header">❌ Rejeitado <span class="count" id="count-rejected">0</span></div>
       <div class="column-body" id="col-rejected" ondragover="onDragOver(event)" ondrop="onDrop(event,'rejected')"></div>
@@ -482,6 +487,15 @@
         <hr style="border-color:var(--border);margin-bottom:8px">
         <h3 style="font-size:.85rem;margin-bottom:8px">🎯 Em Execução</h3>
         <div id="execution-info" style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:.8rem"></div>
+      </div>
+      <div id="approval-section" style="margin-top:12px;display:none;background:var(--surface2);border-radius:8px;padding:12px;border:2px solid var(--accent)">
+        <h3 style="font-size:.85rem;margin-bottom:8px;color:var(--accent2)">👑 Aguardando sua Aprovação</h3>
+        <div id="approval-question" style="font-size:.8rem;margin-bottom:10px;color:var(--text-muted)"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" style="background:var(--green)" onclick="approveTask()">✅ Aprovar</button>
+          <button class="btn btn-sm" style="background:var(--red)" onclick="rejectTask()">❌ Rejeitar</button>
+        </div>
+        <input type="hidden" id="approval-task-id">
       </div>
       <div class="comments-section" id="comments-section">
         <h3>💬 Comentários</h3>
@@ -521,7 +535,7 @@
 const API_BASE = '';
 const AUTH_TOKEN = 'agent-5678';
 const WS_URL = 'ws://'+location.host;
-const COLUMNS = ['backlog','assigned','in_progress','review','done','rejected'];
+const COLUMNS = ['backlog','assigned','in_progress','review','waiting_approval','done','rejected'];
 const STATUS_LABELS = {
   backlog:'📋 Backlog', assigned:'🎯 Atribuído', in_progress:'⚙️ Em Progresso',
   review:'👀 Revisão', done:'✅ Concluído', rejected:'❌ Rejeitado'
@@ -701,6 +715,32 @@ async function openModal(id) {
     document.getElementById('modal-edit-agent').value=data.assigned_to||'';
     document.getElementById('modal-edit-prio').value=data.priority;
     loadComments(id);
+    // Show execution section if agent is executing this task
+    const execSection=document.getElementById('execution-section');
+    const execInfo=document.getElementById('execution-info');
+    const executingAgents=Object.keys(agents).filter(n=>agents[n].taskId===id);
+    if (executingAgents.length) {
+      let html='';
+      for (const aname of executingAgents) {
+        const d=agents[aname];
+        html+='<div style="margin-bottom:6px"><strong>'+esc(aname)+'</strong>';
+        if (d.thinking) html+='<div style="font-size:11px;color:var(--accent2);margin-top:2px">🤔 '+esc(d.thinking)+'</div>';
+        html+='</div>';
+      }
+      execInfo.innerHTML=html;
+      execSection.style.display='block';
+    } else {
+      execSection.style.display='none';
+    }
+    // Approval section
+    const appSection=document.getElementById('approval-section');
+    if (data.approval==='pending') {
+      appSection.style.display='block';
+      document.getElementById('approval-question').textContent=data.approval_question||'O agente solicitou sua aprovação.';
+      document.getElementById('approval-task-id').value=id;
+    } else {
+      appSection.style.display='none';
+    }
     document.getElementById('modal-overlay').classList.add('active');
   } catch(err) { addFeed('❌ Erro ao carregar: '+err.message); }
 }
@@ -784,6 +824,33 @@ async function refreshAll() {
   } catch(err) { addFeed('❌ Erro ao sincronizar: '+err.message); }
 }
 
+// ── Report Modal ────────────────────────────────────────────────
+function openReportModal() {
+  document.getElementById('report-overlay').classList.add('active');
+  loadReport();
+}
+function closeReportModal(e) {
+  if (e&&e.target!==e.currentTarget) return;
+  document.getElementById('report-overlay').classList.remove('active');
+}
+async function loadReport() {
+  const body=document.getElementById('report-body');
+  try {
+    const data=await api('GET','/api/agents/tokens/summary');
+    let html='<table class="report-table"><thead><tr><th>Agente</th><th>Tok In</th><th>Tok Out</th><th>Total</th><th>Custo (US$)</th><th>Req</th></tr></thead><tbody>';
+    for (const a of data.byAgent) {
+      html+='<tr><td><strong>'+esc(a.name)+'</strong></td><td>'+Number(a.total_tokens_in).toLocaleString()+'</td><td>'+Number(a.total_tokens_out).toLocaleString()+'</td><td>'+Number(a.total_tokens).toLocaleString()+'</td><td>US$ '+Number(a.total_cost).toFixed(4)+'</td><td>'+a.usage_count+'</td></tr>';
+    }
+    if (data.grandTotal) {
+      html+='<tr class="total-row"><td><strong>Total Geral</strong></td><td>'+Number(data.grandTotal.total_tokens_in).toLocaleString()+'</td><td>'+Number(data.grandTotal.total_tokens_out).toLocaleString()+'</td><td>'+Number(data.grandTotal.total_tokens).toLocaleString()+'</td><td>US$ '+Number(data.grandTotal.total_cost).toFixed(4)+'</td><td>'+data.grandTotal.usage_count+'</td></tr>';
+    }
+    html+='</tbody></table>';
+    html+='<p style="font-size:11px;color:var(--text-muted);margin-top:12px">💰 Precificação: DeepSeek ~$0.27/M input · $1.10/M output</p>';
+    body.innerHTML=html;
+  } catch(err) {
+    body.innerHTML='<div style="text-align:center;padding:24px;color:var(--red);font-size:.9rem">Erro: '+esc(err.message)+'</div>';
+  }
+}
 // Auto-refresh on load
 refreshAll();
 // ── Agent Chat ────────────────────────────────────────────────────
