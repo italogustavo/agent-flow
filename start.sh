@@ -33,4 +33,14 @@ echo ""
 echo "Pressione Ctrl+C para parar."
 echo ""
 
-exec node server.js
+# Iniciar server + orchestrator (watch mode) em background
+node server.js &
+SERVER_PID=$!
+
+sleep 2
+echo "🤖 Orchestrator ativo (a cada 60s)..."
+node orchestrator.js --watch &
+ORCH_PID=$!
+
+trap "kill $SERVER_PID $ORCH_PID 2>/dev/null; exit" INT TERM
+wait
