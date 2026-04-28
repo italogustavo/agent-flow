@@ -32,7 +32,10 @@ db.exec(`
     priority TEXT NOT NULL DEFAULT 'medium'
       CHECK(priority IN ('low','medium','high','critical')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    due_date TEXT DEFAULT NULL,
+    sla_hours REAL DEFAULT NULL,
+    template_id TEXT DEFAULT NULL
   );
 
 
@@ -85,12 +88,50 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
+  CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
   CREATE INDEX IF NOT EXISTS idx_token_usage_name ON agent_token_usage(name);
+
+  CREATE TABLE IF NOT EXISTS status_history (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    from_status TEXT DEFAULT NULL,
+    to_status TEXT NOT NULL,
+    changed_by TEXT DEFAULT 'system',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_history_task ON status_history(task_id);
+
+  CREATE TABLE IF NOT EXISTS task_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    default_title TEXT NOT NULL,
+    default_description TEXT DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'geral'
+      CHECK(category IN ('geral','frontend','backend','devops','design','qa','bug','refactor')),
+    checklist TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
-// Safe migration: add approval columns if not present
-try { db.exec('ALTER TABLE tasks ADD COLUMN approval TEXT DEFAULT NULL'); } catch(e) { /* column already exists */ }
-try { db.exec('ALTER TABLE tasks ADD COLUMN approval_question TEXT DEFAULT NULL'); } catch(e) { /* column already exists */ }
+// Safe migrations
+try { db.exec('ALTER TABLE tasks ADD COLUMN approval TEXT DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE tasks ADD COLUMN approval_question TEXT DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE tasks ADD COLUMN due_date TEXT DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE tasks ADD COLUMN sla_hours REAL DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE tasks ADD COLUMN template_id TEXT DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE tasks ADD COLUMN assigned_agents TEXT DEFAULT NULL'); } catch(e) {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS task_dependencies (
+    parent_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    child_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(parent_id, child_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_dep_parent ON task_dependencies(parent_id);
+  CREATE INDEX IF NOT EXISTS idx_dep_child ON task_dependencies(child_id);
+`);
 
 // Seed some demo tasks
 const count = db.prepare('SELECT COUNT(*) as cnt FROM tasks').get();
@@ -114,6 +155,30 @@ if (count.cnt === 0) {
   tx();
 }
 
+// Seed task templates
+const tplCount = db.prepare('SELECT COUNT(*) as cnt FROM task_templates').get();
+if (tplCount.cnt === 0) {
+  const tplInsert = db.prepare(
+    'INSERT INTO task_templates (id, name, description, default_title, default_description, category, checklist) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  );
+  const templates = [
+    ['Implementar componente', 'Criar um componente React funcional', 'Implementar [Componente]', 'Criar o componente [Nome] com suporte a props, estados e eventos. Seguir guia de estilo do projeto.', 'frontend', JSON.stringify(['Criar arquivo do componente', 'Adicionar props/interface', 'Implementar renderização', 'Adicionar testes'])],
+    ['Corrigir bug', 'Template para correção de bugs', 'Corrigir bug em [Funcionalidade]', 'Descrever o bug: o que acontece, onde ocorre, como reproduzir.', 'bug', JSON.stringify(['Reproduzir o bug', 'Identificar causa raiz', 'Implementar correção', 'Testar cenário de falha'])],
+    ['Endpoint API', 'Criar endpoint REST no backend', 'Criar endpoint [recurso]', 'Implementar CRUD para [recurso] seguindo padrão REST.', 'backend', JSON.stringify(['Definir rotas', 'Criar controller', 'Validar dados', 'Escrever testes'])],
+    ['Query SQL / Relatório', 'Criar query ou relatório SQL', 'Criar relatório [nome]', 'Construir query SQL para dashboard/relatório conforme especificação.', 'backend', JSON.stringify(['Entender os dados necessários', 'Escrever query', 'Otimizar índices', 'Testar com dados reais'])],
+    ['Tarefa DevOps', 'Infraestrutura, deploy, CI/CD', 'Configurar [infra/tool]', 'Implementar/configurar ferramenta de infraestrutura/deploy.', 'devops', JSON.stringify(['Planejar execução', 'Configurar ambiente', 'Testar funcionamento', 'Documentar'])],
+    ['Melhoria UX', 'Ajuste de layout, design ou usabilidade', 'Melhorar UX de [tela]', 'Ajustar layout, cores, espaçamentos e fluxos para melhor usabilidade.', 'design', JSON.stringify(['Identificar problema de UX', 'Propor solução visual', 'Implementar alterações', 'Verificar responsividade'])],
+    ['Refatorar código', 'Melhorar código existente sem mudar comportamento', 'Refatorar [módulo]', 'Melhorar estrutura, legibilidade e performance do código existente.', 'refactor', JSON.stringify(['Mapear código atual', 'Identificar pontos de melhoria', 'Aplicar refatoração', 'Garantir que testes passam'])],
+    ['Testes / QA', 'Template para tarefas de teste', 'Testar [funcionalidade]', 'Cobrir cenários de teste, incluindo borda, erro e fluxo feliz.', 'qa', JSON.stringify(['Planejar casos de teste', 'Executar testes manuais/automáticos', 'Documentar resultados', 'Aprovar ou rejeitar'])]
+  ];
+  const tplTx = db.transaction(() => {
+    for (const [name, desc, title, body, cat, checklist] of templates) {
+      tplInsert.run(uuidv4(), name, desc, title, body, cat, checklist);
+    }
+  });
+  tplTx();
+}
+
 // ── Cache ─────────────────────────────────────────────────────────────────
 const taskCache = { tasks: null, timestamp: 0, ttl: 2000 };
 const agentHeartbeatBuffer = new Map(); // flush a cada 5s
@@ -123,14 +188,18 @@ function getTasksCached(query) {
   if (now - taskCache.timestamp < taskCache.ttl && taskCache.tasks && !query.status && !query.assigned_to) {
     return taskCache.tasks;
   }
-  let sql = 'SELECT * FROM tasks';
+  let sql = 'SELECT t.*, (SELECT COUNT(*) FROM task_dependencies d JOIN tasks p ON p.id = d.parent_id WHERE d.child_id = t.id AND p.status NOT IN (\'done\',\'rejected\')) AS blocked_count FROM tasks t';
   const params = [];
   const clauses = [];
-  if (query.status) { clauses.push('status = ?'); params.push(query.status); }
-  if (query.assigned_to) { clauses.push('assigned_to = ?'); params.push(query.assigned_to); }
+  if (query.status) { clauses.push('t.status = ?'); params.push(query.status); }
+  if (query.assigned_to) { clauses.push('t.assigned_to = ?'); params.push(query.assigned_to); }
   if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
-  sql += ' ORDER BY created_at DESC';
+  sql += ' ORDER BY t.created_at DESC';
   const tasks = db.prepare(sql).all(...params);
+  // Parse assigned_agents for each task
+  for (const t of tasks) {
+    t.assigned_agents = t.assigned_agents ? JSON.parse(t.assigned_agents) : [];
+  }
   if (!query.status && !query.assigned_to) {
     taskCache.tasks = tasks;
     taskCache.timestamp = now;
@@ -177,12 +246,20 @@ app.get('/api/tasks', auth, (req, res) => {
 
 // POST /api/tasks
 app.post('/api/tasks', auth, (req, res) => {
-  const { title, description, assigned_to, priority } = req.body;
+  const { title, description, assigned_to, priority, assigned_agents, dependencies } = req.body;
   if (!title) return res.status(400).json({ error: 'title is required' });
   const id = uuidv4();
+  const agentsJson = assigned_agents && Array.isArray(assigned_agents) ? JSON.stringify(assigned_agents) : null;
   db.prepare(
-    'INSERT INTO tasks (id, title, description, status, assigned_to, priority) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, title, description || '', 'backlog', assigned_to || null, priority || 'medium');
+    'INSERT INTO tasks (id, title, description, status, assigned_to, priority, assigned_agents) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, title, description || '', 'backlog', assigned_to || null, priority || 'medium', agentsJson);
+  // Register dependencies
+  if (dependencies && Array.isArray(dependencies)) {
+    const depInsert = db.prepare('INSERT OR IGNORE INTO task_dependencies (parent_id, child_id) VALUES (?, ?)');
+    for (const parentId of dependencies) {
+      depInsert.run(parentId, id);
+    }
+  }
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   invalidateTaskCache();
   broadcast({ type: 'task:created', task });
@@ -194,7 +271,66 @@ app.get('/api/tasks/:id', auth, (req, res) => {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
   const comments = db.prepare('SELECT * FROM comments WHERE task_id = ? ORDER BY created_at').all(req.params.id);
-  res.json({ ...task, comments });
+  const history = db.prepare('SELECT * FROM status_history WHERE task_id = ? ORDER BY created_at DESC LIMIT 50').all(req.params.id);
+  // Resolve dependencies
+  const blocking = db.prepare(`
+    SELECT t.id, t.title, t.status FROM task_dependencies d
+    JOIN tasks t ON t.id = d.child_id
+    WHERE d.parent_id = ? AND t.status NOT IN ('done', 'rejected')`).all(req.params.id);
+  const blockedBy = db.prepare(`
+    SELECT t.id, t.title, t.status FROM task_dependencies d
+    JOIN tasks t ON t.id = d.parent_id
+    WHERE d.child_id = ?`).all(req.params.id);
+  const parsedAgents = task.assigned_agents ? JSON.parse(task.assigned_agents) : [];
+  res.json({ ...task, assigned_agents: parsedAgents, blocking, blockedBy, comments, history });
+});
+
+// GET /api/tasks/:id/history
+app.get('/api/tasks/:id/history', auth, (req, res) => {
+  const history = db.prepare('SELECT * FROM status_history WHERE task_id = ? ORDER BY created_at DESC').all(req.params.id);
+  res.json(history);
+});
+
+// GET /api/templates
+app.get('/api/templates', auth, (req, res) => {
+  const { category } = req.query;
+  let sql = 'SELECT * FROM task_templates';
+  const params = [];
+  if (category) { sql += ' WHERE category = ?'; params.push(category); }
+  sql += ' ORDER BY category, name';
+  res.json(db.prepare(sql).all(...params));
+});
+
+// POST /api/tasks/from-template — criar task a partir de template
+app.post('/api/tasks/from-template', auth, (req, res) => {
+  const { templateId, title, assigned_to, priority, due_date } = req.body;
+  if (!templateId) return res.status(400).json({ error: 'templateId is required' });
+  const template = db.prepare('SELECT * FROM task_templates WHERE id = ?').get(templateId);
+  if (!template) return res.status(404).json({ error: 'Template not found' });
+  const id = uuidv4();
+  const finalTitle = title || template.default_title.replace(/\[.*?\]/g, '').trim();
+  db.prepare(
+    'INSERT INTO tasks (id, title, description, status, assigned_to, priority, template_id, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, finalTitle, template.default_description, 'backlog', assigned_to || null, priority || 'medium', templateId, due_date || null);
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  invalidateTaskCache();
+  broadcast({ type: 'task:created', task });
+  res.status(201).json(task);
+});
+
+// GET /api/overdue — tasks atrasadas (SLA)
+app.get('/api/overdue', auth, (req, res) => {
+  const tasks = db.prepare(`
+    SELECT * FROM tasks
+    WHERE status NOT IN ('done', 'rejected')
+      AND (
+        (due_date IS NOT NULL AND due_date < datetime('now'))
+        OR
+        (sla_hours IS NOT NULL AND datetime(created_at, '+' || sla_hours || ' hours') < datetime('now'))
+      )
+    ORDER BY due_date ASC, created_at ASC
+  `).all();
+  res.json(tasks);
 });
 
 // PATCH /api/tasks/:id
@@ -202,7 +338,7 @@ app.patch('/api/tasks/:id', auth, (req, res) => {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
-  const allowed = ['title', 'description', 'status', 'assigned_to', 'priority', 'approval', 'approval_question'];
+  const allowed = ['title', 'description', 'status', 'assigned_to', 'priority', 'approval', 'approval_question', 'due_date', 'sla_hours', 'template_id'];
   const sets = [];
   const params = [];
   for (const key of allowed) {
@@ -211,7 +347,27 @@ app.patch('/api/tasks/:id', auth, (req, res) => {
       params.push(req.body[key]);
     }
   }
+  // Handle assigned_agents (JSON array -> string)
+  if (req.body.assigned_agents !== undefined) {
+    sets.push('assigned_agents = ?');
+    params.push(Array.isArray(req.body.assigned_agents) ? JSON.stringify(req.body.assigned_agents) : null);
+  }
+  // Handle dependencies
+  if (req.body.dependencies !== undefined && Array.isArray(req.body.dependencies)) {
+    db.prepare('DELETE FROM task_dependencies WHERE child_id = ?').run(req.params.id);
+    const depInsert = db.prepare('INSERT OR IGNORE INTO task_dependencies (parent_id, child_id) VALUES (?, ?)');
+    for (const parentId of req.body.dependencies) {
+      depInsert.run(parentId, req.params.id);
+    }
+  }
   if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+
+  // Auto-register status change in history
+  if (req.body.status && req.body.status !== task.status) {
+    db.prepare(
+      'INSERT INTO status_history (id, task_id, from_status, to_status, changed_by) VALUES (?, ?, ?, ?, ?)'
+    ).run(uuidv4(), req.params.id, task.status, req.body.status, req.body.changed_by || 'system');
+  }
 
   sets.push("updated_at = datetime('now')");
   params.push(req.params.id);
@@ -482,6 +638,29 @@ app.get('/api/agents/tokens/summary', auth, (req, res) => {
   `).get();
 
   res.json({ byAgent, grandTotal });
+});
+
+// ── API de Dependências ────────────────────────────────────────────────────
+
+// POST /api/tasks/:id/dependencies — adicionar dependencia
+app.post('/api/tasks/:id/dependencies', auth, (req, res) => {
+  const { parent_id } = req.body;
+  if (!parent_id) return res.status(400).json({ error: 'parent_id is required' });
+  if (parent_id === req.params.id) return res.status(400).json({ error: 'A task cannot depend on itself' });
+  // Check both exist
+  const child = db.prepare('SELECT id FROM tasks WHERE id = ?').get(req.params.id);
+  const parent = db.prepare('SELECT id FROM tasks WHERE id = ?').get(parent_id);
+  if (!child || !parent) return res.status(404).json({ error: 'Task not found' });
+  db.prepare('INSERT OR IGNORE INTO task_dependencies (parent_id, child_id) VALUES (?, ?)').run(parent_id, req.params.id);
+  invalidateTaskCache();
+  res.json({ ok: true });
+});
+
+// DELETE /api/tasks/:id/dependencies/:parentId — remover dependencia
+app.delete('/api/tasks/:id/dependencies/:parentId', auth, (req, res) => {
+  db.prepare('DELETE FROM task_dependencies WHERE child_id = ? AND parent_id = ?').run(req.params.id, req.params.parentId);
+  invalidateTaskCache();
+  res.json({ ok: true });
 });
 
 // ── Dashboard de Produtividade ────────────────────────────────────────────
